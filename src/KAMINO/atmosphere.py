@@ -34,11 +34,11 @@ class atmosphere:
         for species in self.x_gas.keys():
             self.mmw += self.x_gas[species] * SPECIES_MMW[species]
 
-    def add_species(self, amount: float, modified_species: str):
+    def add_species(self, amount: float, added_species: str):
 
-        self.n_gas[modified_species] += amount
+        self.n_gas[added_species] += amount
         self.moles += amount
-        self.P_surface += (amount * SPECIES_MMW[modified_species] * self.gravity) / self.area
+        self.P_surface += (amount * SPECIES_MMW[added_species] * self.gravity) / self.area
         
         for species in self.x_gas.keys():
             self.x_gas[species] = self.n_gas[species] / self.moles
