@@ -6,9 +6,12 @@ SOLUTION 1 Ocean
     pH          7.0         # Initial pH
     units       mol/kgw     # Units for concentration
     C           0.0         # Total dissolved carbon
-    Ca          0.0         # Calcium concentration
-    Na          0.0         # Sodium concentration
-    Cl          0.0         # Chloride concentration
+    Ca          0.01         # Calcium concentration
+    Na          0.47         # Sodium concentration
+    Cl          0.55         # Chloride concentration
+    K           0.01
+    Mg          0.053
+    S           0.028
 
 SELECTED_OUTPUT
     -file output.txt

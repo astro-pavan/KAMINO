@@ -3,11 +3,11 @@ DATABASE external/phreeqc-3.8.6-17100/database/phreeqc.dat
 SOLUTION 1 Ocean
     temp        30.0        # Temperature in degrees Celsius
     pressure    1.0         # Pressure in atmospheres
-    pH          7.0         # Initial pH
+    pH          8.3         # Initial pH
     units       mol/kgw     # Units for concentration
     Ca          0.0         # Calcium concentration
-    Na          0.0         # Sodium concentration
-    Cl          0.0         # Chloride concentration
+    Na          0.47         # Sodium concentration
+    Cl          0.55         # Chloride concentration
 
 EQUILIBRIUM_PHASES 1 Atmosphere
     CO2(g) -3.5
