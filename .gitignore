@@ -1,3 +1,6 @@
+external/phreeqc-3.8.6-17100/
+external/phreeqc/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
