@@ -10,7 +10,7 @@ PHREEQC_path = 'external/phreeqc/bin'
 
 output_file_path = f'{PHREEQC_path}/output.txt'
 
-def find_partial_pressure(P: float, T: float, carbon_molality: float):
+def find_partial_pressure(P: float, T: float, carbon_molality: float, pH: float | None =None) -> tuple[float, float]:
 
     input_template_file_path = 'templates/partial_pressure_input.txt'
     input_file_path_new = f'{PHREEQC_path}/input'
@@ -22,6 +22,9 @@ def find_partial_pressure(P: float, T: float, carbon_molality: float):
         5 : f'    pressure    {P / EARTH_ATM:.4f}         # Pressure in atmospheres',
         8 : f'    C           {carbon_molality:.8f}         # Total dissolved carbon'
     }
+
+    if pH is not None:
+        input_modifications[6] = f'    pH          {pH:.2f}'
 
     modify_file_by_lines(input_template_file_path, input_file_path_new, input_modifications)
 
@@ -36,6 +39,9 @@ def find_partial_pressure(P: float, T: float, carbon_molality: float):
     P_H2O = (10 ** si_H2O) * EARTH_ATM
 
     return P_CO2, P_H2O
+
+def reverse_partial_pressure(P: float, T: float, P_CO2: float):
+    pass
 
 def find_carbon_molality(P: float, T: float, P_CO2: float):
 
@@ -63,16 +69,12 @@ def find_carbon_molality(P: float, T: float, P_CO2: float):
 if __name__ == '__main__':
 
     P_CO2_original = 0.004 * EARTH_ATM
-    molality_original = 0.002 
+    molality_original = 0.00206
 
-    molality = find_carbon_molality(1e5, 300, P_CO2_original) # type: ignore
+    P_CO2, P_H2O = find_partial_pressure(EARTH_ATM, 290, molality_original)
 
-    print(molality)
-
-    P_CO2, P_H2O = find_partial_pressure(1e5, 300, molality_original) # type: ignore
-
-    print(P_CO2 / EARTH_ATM)
-    print(P_H2O / EARTH_ATM)
+    print(f'{P_CO2 / EARTH_ATM:.2%}')
+    print(f'{P_H2O / EARTH_ATM:.2%}')
 
 
 
