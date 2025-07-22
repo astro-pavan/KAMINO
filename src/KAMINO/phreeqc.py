@@ -33,10 +33,10 @@ def find_partial_pressures(P: float, T: float, composition: dict[str, float], al
     if carbon_molality is not None:
         input_newlines.append(f'    C    {carbon_molality}')
     if alkalinity is not None:
-        input_newlines.append(f'    Alkalinity    {alkalinity} as HCO3')
+        input_newlines.append(f'    Alkalinity    {alkalinity:.8f} as HCO3')
 
     for k in composition.keys():
-        input_newlines.append(f'    {k}    {composition[k]}')
+        input_newlines.append(f'    {k}    {composition[k]:.8f}')
 
     insert_lines_into_file(input_file_path_new, input_newlines, 6)
 
@@ -69,6 +69,41 @@ def reverse_partial_pressure(P: float, T: float, P_CO2: float, composition: dict
         return result.root  # type: ignore
     else:
         raise ValueError("Root finding did not converge")
+    
+def seafloor_equilbrium(P: float, T: float, P_seafloor:float, T_seafloor:float, composition: dict[str, float], alkalinity: Union[float, None]=None, carbon_molality: Union[float, None] = None, pH: Union[float, None]=None):
+    
+    input_template_file_path = 'input/seafloor_weathering_input.txt'
+    input_file_path_new = f'{PHREEQC_path}/input'
+    wd: str = os.getcwd()
+
+    input_modifications: dict[int, str] = {
+        1 : f'DATABASE {wd}/external/phreeqc-3.8.6-17100/database/phreeqc.dat',
+        4 : f'    temp        {T + ABSOLUTE_ZERO:.4f}        # Temperature in degrees Celsius',
+        13: f'    {P_seafloor / EARTH_ATM:.4f}',
+        15: f'    {T_seafloor + ABSOLUTE_ZERO:.4f}'
+    }
+
+    modify_file_by_lines(input_template_file_path, input_file_path_new, input_modifications)
+
+    input_newlines: list[str] = []
+
+    if pH is not None:
+        input_newlines.append(f'    pH    {pH:.2f}')
+    if carbon_molality is not None:
+        input_newlines.append(f'    C    {carbon_molality}')
+    if alkalinity is not None:
+        input_newlines.append(f'    Alkalinity    {alkalinity:.8f} as HCO3')
+
+    for k in composition.keys():
+        input_newlines.append(f'    {k}    {composition[k]:.8f}')
+
+    insert_lines_into_file(input_file_path_new, input_newlines, 5)
+
+    subprocess.run(['./phreeqc', 'input'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=PHREEQC_path)
+
+    solution_df: pd.DataFrame = pd.read_table(output_file_path, sep='\s+') # type: ignore
+
+    print(solution_df)
 
 if __name__ == '__main__':
 
@@ -81,8 +116,14 @@ if __name__ == '__main__':
         'K': 0.0102
     }
 
-    P_CO2, P_H2O = find_partial_pressures(EARTH_ATM, 290, comp, alkalinity=2223 * 1e-6, carbon_molality=0.002)
+    seafloor_equilbrium(EARTH_ATM, 290, 400 * EARTH_ATM, 275, comp, alkalinity=1000 * 1e-6, carbon_molality=0.001)
 
-    print(f'{P_CO2 / EARTH_ATM:.4%}')
-    print(f'{P_H2O / EARTH_ATM:.2%}')
-    
+    # P_CO2, P_H2O = find_partial_pressures(EARTH_ATM, 290, comp, alkalinity=2223 * 1e-6, carbon_molality=0.002)
+
+    # print(f'{P_CO2 / EARTH_ATM:.4%}')
+    # print(f'{P_H2O / EARTH_ATM:.2%}')
+
+    # alk = reverse_partial_pressure(EARTH_ATM, 290, (400 * 1e-6) * EARTH_ATM, comp, carbon_molality=0.002, find_alkalinity=True)
+
+    # print(alk * 1e6)
+
