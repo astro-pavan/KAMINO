@@ -1,3 +1,5 @@
+import numpy as np
+
 from constants import SPECIES_MMW
 
 class atmosphere:
@@ -20,6 +22,12 @@ class atmosphere:
 
         self.n_gas: dict[str, float] = {}
         self.calculate_n_gas()
+
+        n_layers = 30
+
+        self.P = np.empty(n_layers, dtype=np.float64)
+        self.T = np.empty(n_layers, dtype=np.float64)
+        self.z = np.empty(n_layers, dtype=np.float64)
 
     def calculate_P_gas(self):
         for species in self.P_gas.keys():
@@ -60,3 +68,6 @@ class atmosphere:
         self.moles += delta_n
         
         self.calculate_n_gas()
+
+    def radiative_convective_equilbrium(self):
+        pass
