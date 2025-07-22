@@ -1,0 +1,25 @@
+DATABASE external/phreeqc-3.8.6-17100/database/phreeqc.dat
+
+SOLUTION 1 Ocean
+    temp        30.0        # Temperature in degrees Celsius
+    units       mol/kgw     # Units for concentration
+
+
+EQUILIBRIUM_PHASES 1 Seafloor
+    Calcite     0.0  10.0 # Equilibrate with 10 moles of Calcite
+    Aragonite   0.0  10.0 # Equilibrate with 10 moles of Aragonite
+
+REACTION_PRESSURE 1
+    400
+REACTION_TEMPERATURE 1
+    4.0
+
+
+SELECTED_OUTPUT
+    -file output.txt
+    -totals Ca Mg Na K Cl S(6) Alkalinity
+    -equilibrium_phases Calcite Aragonite
+    -saturation_indices Calcite Aragonite
+    -pH
+
+END
