@@ -44,3 +44,5 @@ SPECIES_MMW = {
     'H2' : 0.002,
     'O2' : 0.032
 } # kg / mol
+
+WATER_MOLALITY = 55.510 # mol / kg
