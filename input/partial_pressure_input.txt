@@ -3,12 +3,8 @@ DATABASE external/phreeqc-3.8.6-17100/database/phreeqc.dat
 SOLUTION 1 Ocean
     temp        30.0        # Temperature in degrees Celsius
     pressure    1.0         # Pressure in atmospheres
-    pH          7   charge
     units       mol/kgw     # Units for concentration
-    C           0.0         # Total dissolved carbon
-    Ca          0.01         # Calcium concentration
-    Na          0.47         # Sodium concentration
-    Cl          0.55         # Chloride concentration
+
 
 SELECTED_OUTPUT
     -file output.txt
