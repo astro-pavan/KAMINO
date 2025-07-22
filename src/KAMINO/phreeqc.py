@@ -1,7 +1,7 @@
 import subprocess
 import os
 import pandas as pd
-import numpy as np
+from scipy.optimize import root_scalar # type: ignore
 
 from typing import Union
 
@@ -52,8 +52,23 @@ def find_partial_pressures(P: float, T: float, composition: dict[str, float], al
 
     return P_CO2, P_H2O
 
-def reverse_partial_pressure(P: float, T: float, P_CO2: float):
-    pass
+def reverse_partial_pressure(P: float, T: float, P_CO2: float, composition: dict[str, float], carbon_molality: float, find_alkalinity: bool=False) -> float:
+    
+    def P_CO2_function_alk(alkalinity: float): 
+        return find_partial_pressures(P, T, composition, alkalinity, carbon_molality)[0] - P_CO2
+    
+    def P_CO2_function_pH(pH: float): 
+        return find_partial_pressures(P, T, composition, pH=pH, carbon_molality=carbon_molality)[0] - P_CO2
+
+    if find_alkalinity:
+        result = root_scalar(P_CO2_function_alk, bracket=(0, 55), method='brentq')  # type: ignore
+    else:
+        result = root_scalar(P_CO2_function_pH, bracket=(0, 14), method='brentq')  # type: ignore
+
+    if result.converged:  # type: ignore
+        return result.root  # type: ignore
+    else:
+        raise ValueError("Root finding did not converge")
 
 if __name__ == '__main__':
 
@@ -70,4 +85,4 @@ if __name__ == '__main__':
 
     print(f'{P_CO2 / EARTH_ATM:.4%}')
     print(f'{P_H2O / EARTH_ATM:.2%}')
-
+    
