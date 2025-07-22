@@ -1,5 +1,5 @@
 
-def modify_file_by_lines(filename: str, new_filename: str, modification_dict: dict[int, str]):
+def modify_file_by_lines(filename: str, new_filename: str, modification_dict: dict[int, str]) -> None:
 
     try:
             # Read the file into a list of lines
@@ -21,4 +21,15 @@ def modify_file_by_lines(filename: str, new_filename: str, modification_dict: di
         print(f"Error: The file at '{filename}' was not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+
+def insert_lines_into_file(file_path: str, lines: list[str], position: int) -> None:
+    with open(file_path, 'r') as f:
+        content = f.readlines()
+
+    lines_with_newlines = [line if line.endswith('\n') else line + '\n' for line in lines]
+    updated_content = content[:position] + lines_with_newlines + content[position:]
+
+    with open(file_path, 'w') as f:
+        f.writelines(updated_content)
 
