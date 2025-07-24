@@ -1,7 +1,6 @@
 DATABASE external/phreeqc-3.8.6-17100/database/phreeqc.dat
 
 SOLUTION 1 Ocean
-    temp        30.0        # Temperature in degrees Celsius
     units       mol/kgw     # Units for concentration
 
 
