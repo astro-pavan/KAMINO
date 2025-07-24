@@ -70,7 +70,7 @@ def reverse_partial_pressure(P: float, T: float, P_CO2: float, composition: dict
     else:
         raise ValueError("Root finding did not converge")
     
-def seafloor_equilbrium(P: float, T: float, P_seafloor:float, T_seafloor:float, composition: dict[str, float], alkalinity: Union[float, None]=None, carbon_molality: Union[float, None] = None, pH: Union[float, None]=None):
+def seafloor_equilbrium(P_seafloor:float, T_seafloor:float, composition: dict[str, float], alkalinity: Union[float, None]=None, carbon_molality: Union[float, None] = None, pH: Union[float, None]=None) -> dict[str, float]:
     
     input_template_file_path = 'input/seafloor_weathering_input.txt'
     input_file_path_new = f'{PHREEQC_path}/input'
@@ -78,9 +78,8 @@ def seafloor_equilbrium(P: float, T: float, P_seafloor:float, T_seafloor:float, 
 
     input_modifications: dict[int, str] = {
         1 : f'DATABASE {wd}/external/phreeqc-3.8.6-17100/database/phreeqc.dat',
-        4 : f'    temp        {T + ABSOLUTE_ZERO:.4f}        # Temperature in degrees Celsius',
-        13: f'    {P_seafloor / EARTH_ATM:.4f}',
-        15: f'    {T_seafloor + ABSOLUTE_ZERO:.4f}'
+        12: f'    {P_seafloor / EARTH_ATM:.4f}',
+        14: f'    {T_seafloor + ABSOLUTE_ZERO:.4f}'
     }
 
     modify_file_by_lines(input_template_file_path, input_file_path_new, input_modifications)
@@ -103,7 +102,12 @@ def seafloor_equilbrium(P: float, T: float, P_seafloor:float, T_seafloor:float, 
 
     solution_df: pd.DataFrame = pd.read_table(output_file_path, sep='\s+') # type: ignore
 
-    print(solution_df)
+    new_composition: dict[str, float]= {}
+
+    for k in composition:
+        new_composition[k] = solution_df[k] # type: ignore
+
+    return new_composition
 
 if __name__ == '__main__':
 
@@ -116,7 +120,7 @@ if __name__ == '__main__':
         'K': 0.0102
     }
 
-    seafloor_equilbrium(EARTH_ATM, 290, 400 * EARTH_ATM, 275, comp, alkalinity=1000 * 1e-6, carbon_molality=0.001)
+    seafloor_equilbrium(400 * EARTH_ATM, 275, comp, alkalinity=1000 * 1e-6, carbon_molality=0.001)
 
     # P_CO2, P_H2O = find_partial_pressures(EARTH_ATM, 290, comp, alkalinity=2223 * 1e-6, carbon_molality=0.002)
 
