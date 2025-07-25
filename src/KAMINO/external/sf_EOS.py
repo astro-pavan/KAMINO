@@ -44,6 +44,8 @@ def make_adiabat(P_start: float, T_start: float, P_end: float, salinity: float=0
     T_arr[0] = T_start
     rho_arr[0] = EOS(P_start, T_start, salinity, 'density')
 
+    print(f'Making adiabat at {P_start:.2e} Pa, {T_start:.0f} K...')
+
     for i in tqdm(range(1, num)):
         def objective(T):
             return EOS(P_arr[i], T, salinity, 'entropy') - S0
