@@ -5,8 +5,8 @@ SOLUTION 1 Ocean
 
 
 EQUILIBRIUM_PHASES 1 Seafloor
-    Calcite     0.0  10.0 # Equilibrate with 10 moles of Calcite
-    Aragonite   0.0  10.0 # Equilibrate with 10 moles of Aragonite
+    K-feldspar     0.0  10.0 # Equilibrate with 10 moles of Calcite
+
 
 REACTION_PRESSURE 1
     400
@@ -16,7 +16,7 @@ REACTION_TEMPERATURE 1
 
 SELECTED_OUTPUT
     -file output.txt
-    -totals Ca Mg Na K Cl S(6) Alkalinity
+    -totals Ca Mg Na K Cl S(6) C Alkalinity
     -equilibrium_phases Calcite Aragonite
     -saturation_indices Calcite Aragonite
     -pH
