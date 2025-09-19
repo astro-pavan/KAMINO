@@ -1,6 +1,7 @@
 import subprocess
 import os
 import pandas as pd
+import numpy as np
 from scipy.optimize import root_scalar # type: ignore
 
 from typing import Union
@@ -50,7 +51,7 @@ def find_partial_pressures(P: float, T: float, composition: dict[str, float], al
     P_CO2 = (10 ** si_CO2) * EARTH_ATM
     P_H2O = (10 ** si_H2O) * EARTH_ATM
 
-    return P_CO2, P_H2O
+    return (P_CO2, P_H2O)
 
 def reverse_partial_pressure(P: float, T: float, P_CO2: float, composition: dict[str, float], carbon_molality: float, find_alkalinity: bool=False) -> float:
     
@@ -70,7 +71,7 @@ def reverse_partial_pressure(P: float, T: float, P_CO2: float, composition: dict
     else:
         raise ValueError("Root finding did not converge")
     
-def seafloor_equilbrium(P_seafloor:float, T_seafloor:float, composition: dict[str, float], alkalinity: Union[float, None]=None, carbon_molality: Union[float, None] = None, pH: Union[float, None]=None) -> dict[str, float]:
+def seafloor_equilbrium(P_seafloor:float, T_seafloor:float, composition: dict[str, float], alkalinity: Union[float, None]=None, carbon_molality: Union[float, None] = None, pH: Union[float, None]=None) -> tuple[dict[str, float], float, float]:
     
     input_template_file_path = 'input/seafloor_weathering_input.txt'
     input_file_path_new = f'{PHREEQC_path}/input'
@@ -102,25 +103,77 @@ def seafloor_equilbrium(P_seafloor:float, T_seafloor:float, composition: dict[st
 
     solution_df: pd.DataFrame = pd.read_table(output_file_path, sep='\s+') # type: ignore
 
+    # print(solution_df.keys())
+
     new_composition: dict[str, float]= {}
 
     for k in composition:
-        new_composition[k] = solution_df[k] # type: ignore
+        new_composition[k] = float(np.array(solution_df[k])[1]) # type: ignore
 
-    return new_composition
+    new_alkalinity = float(np.array(solution_df['Alkalinity'])[1]) # type: ignore
+    new_carbon_molality = float(np.array(solution_df['C'])[1]) # type: ignore
+
+    return new_composition, new_alkalinity, new_carbon_molality
 
 if __name__ == '__main__':
 
+    sal = 1
+
     comp: dict[str, float] = {
-        'Cl': 0.546,
-        'Na': 0.469,
-        'Mg': 0.0528,
-        'S(6)': 0.0282,
-        'Ca': 0.0103,
-        'K': 0.0102
+        'Cl': 0.546 * sal,
+        'Na': 0.469 * sal,
+        'Mg': 0.0528 * sal,
+        'S(6)': 0.0282 * sal,
+        'Ca': 0.0103 * sal,
+        'K': 0.0102 * sal
     }
 
-    seafloor_equilbrium(400 * EARTH_ATM, 275, comp, alkalinity=1000 * 1e-6, carbon_molality=0.001)
+    # comp: dict[str, float] = {
+    #     'Cl': 0.546,
+    #     'Na': 0.469,
+    #     'Mg': 0.0528,
+    #     'S(6)': 0.0282,
+    #     'Ca': 0.0103,
+    #     'K': 0.0102
+    # }
+
+    alk = 1000 * 1e-6
+    C = 0.001
+
+    dT = +3
+
+    T_bottom = 277
+    T_bottom_new = T_bottom + dT
+
+    # T_bottom = 273 + 400
+    # T_bottom_new = 273 + 403
+
+    T_0 = 293
+    T_0_new = T_0 + dT
+
+    P_floor = 500
+
+    print(f'Alkanlinity : {alk}, C : {C}')
+
+    new_comp, new_alk, new_C = seafloor_equilbrium(P_floor * EARTH_ATM, T_bottom, comp, alkalinity=alk, carbon_molality=C)
+    P_CO2_old, P_H2O = find_partial_pressures(1 * EARTH_ATM, T_0, new_comp, new_alk, new_C)
+
+    print(f'Alkanlinity : {new_alk}, C : {new_C}, P_CO2: {P_CO2_old / EARTH_ATM:.4%}, P_H2O: {P_H2O / EARTH_ATM:.4%}')
+
+    new_comp, new_alk, new_C = seafloor_equilbrium(P_floor * EARTH_ATM, T_bottom, new_comp, alkalinity=new_alk, carbon_molality=new_C)
+    P_CO2, P_H2O = find_partial_pressures(1 * EARTH_ATM, T_0_new, new_comp, new_alk, new_C) # type: ignore
+
+    print(f'Alkanlinity : {new_alk}, C : {new_C}, P_CO2: {P_CO2 / EARTH_ATM:.4%}, P_H2O: {P_H2O / EARTH_ATM:.4%}')
+
+    new_comp, new_alk, new_C = seafloor_equilbrium(P_floor * EARTH_ATM, T_bottom_new, new_comp, alkalinity=new_alk, carbon_molality=new_C)
+    P_CO2, P_H2O = find_partial_pressures(1 * EARTH_ATM, T_0_new, new_comp, new_alk, new_C) # type: ignore
+
+    print(f'!! Alkanlinity : {new_alk}, C : {new_C}, P_CO2: {P_CO2 / EARTH_ATM:.4%}, P_H2O: {P_H2O / EARTH_ATM:.4%} !!')
+
+    new_comp, new_alk, new_C = seafloor_equilbrium(P_floor * EARTH_ATM, T_bottom_new, new_comp, alkalinity=new_alk, carbon_molality=new_C)
+    P_CO2, P_H2O = find_partial_pressures(1 * EARTH_ATM, T_0, new_comp, new_alk, new_C) # type: ignore
+
+    print(f'Alkanlinity : {new_alk}, C : {new_C}, P_CO2: {P_CO2 / EARTH_ATM:.4%}, P_H2O: {P_H2O / EARTH_ATM:.4%}')
 
     # P_CO2, P_H2O = find_partial_pressures(EARTH_ATM, 290, comp, alkalinity=2223 * 1e-6, carbon_molality=0.002)
 
