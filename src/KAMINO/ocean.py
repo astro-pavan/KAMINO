@@ -2,7 +2,7 @@ default_seawater_ratios = 'input/default_seawater_composition'
 
 import pandas as pd
 
-from external.phreeqc import find_partial_pressures, reverse_partial_pressure, seafloor_equilbrium
+from external.phreeqc import find_partial_pressures, reverse_partial_pressure, seafloor_equilbrium # type: ignore
 from constants import ABSOLUTE_ZERO
 
 class ocean:
@@ -39,8 +39,8 @@ class ocean:
         self.pH = reverse_partial_pressure(self.P_surface, self.T_surface, P_CO2, self.composition, carbon_molality)
         self.alkalinity = reverse_partial_pressure(self.P_surface, self.T_surface, P_CO2, self.composition, carbon_molality, find_alkalinity=True)
 
-    def get_partial_pressures(self):
-        return find_partial_pressures(self.P_surface, self.T_surface, self.composition, self.alkalinity, self.carbon_molality)
+    def get_partial_pressures(self) -> tuple[float, float]: 
+        return find_partial_pressures(self.P_surface, self.T_surface, self.composition, self.alkalinity, self.carbon_molality) # type: ignore
     
     def seafloor_weathering(self):
 
@@ -57,4 +57,4 @@ if __name__ == '__main__':
     print(o1.alkalinity)
     print(o1.pH)
     P_CO2, P_H20 = o1.get_partial_pressures()
-    print(100 * P_H20 / 1e5 )
+    print(100 * P_H20 / 1e5)
