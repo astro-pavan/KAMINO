@@ -2,17 +2,15 @@ DATABASE external/phreeqc-3.8.6-17100/database/phreeqc.dat
 
 SOLUTION 1 Ocean
     units       mol/kgw     # Units for concentration
+    temp
+    pressure
 
 EQUILIBRIUM_PHASES 1 Seafloor
 
-REACTION_PRESSURE 1
-    400
-REACTION_TEMPERATURE 1
-    4.0
 
 SELECTED_OUTPUT
     -file output.txt
-    -totals Ca Mg Na K Cl S(6) C Alkalinity Al Si
+    -totals Ca Mg Na K Cl S(6) C Alkalinity Si Al
     -equilibrium_phases 
     -saturation_indices
     -pH
