@@ -4,6 +4,8 @@ external/phreeqc/
 src/KAMINO/external/utils.py
 src/KAMINO/external/constants.py
 
+*.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
