@@ -170,6 +170,44 @@ EARTH = {'S': 1.0, 'T': 288.0, 'P_CO2': 280e-6, 'pH': 8.1,
 T_CLAMP_HOT = 389.0
 T_CLAMP_COLD = 181.0
 
+# Validity of the climate model's OLR parameterisation (kamino.climate.analytic), which is the
+# Haqq-Misra et al. (2016) polynomial fit to the Kopparapu et al. (2013, 2014) 1-D
+# radiative-convective columns: 1e-5 bar < pCO2 < 10 bar and 150 K < T < 350 K, error <= 3.3 W/m2.
+# A state outside that box is an extrapolation of the fit, not a prediction of the model.
+OLR_FIT_T_MAX = 350.0
+
+
+def _olr_limit(pco2_bar):
+    """First local maximum of OLR(T) -- the Simpson-Nakajima radiation limit for this atmosphere.
+
+    OLR is NOT monotonic in T: water vapour makes it plateau near 271 W/m2 (at low CO2) and then
+    fall before the hot branch climbs again. Instellation above that plateau admits no cool-branch
+    solution, which is the runaway greenhouse.
+    """
+    from kamino.climate.analytic import OLR
+    peak = OLR(180.0, pco2_bar)
+    for T in np.arange(181.0, 391.0, 1.0):
+        v = OLR(float(T), pco2_bar)
+        if v < peak:
+            break
+        peak = v
+    return peak
+
+
+def _past_runaway(S, pco2_bar, albedo=0.3):
+    """True when absorbed instellation exceeds the OLR limit, i.e. the planet is in runaway.
+
+    This is the check `get_T_surface_analytic` does NOT make. When no cool-branch root exists it
+    returns the first sign change it finds, which lies on the HOT branch beyond the runaway --
+    a number near 357 K that a plain `T < 360` habitability test happily accepts. Measured on
+    this grid that put the continental inner edge at S = 1.15, one grid point too far.
+    """
+    from kamino.climate.analytic import albedo_funtion
+    from kamino.constants import SOLAR_CONSTANT
+    pco2_bar = max(float(pco2_bar), 1e-5)      # the model's own 1 Pa CO2 floor
+    A = albedo_funtion(pco2_bar, albedo)
+    return S * SOLAR_CONSTANT * (1 - A) * 0.25 > _olr_limit(pco2_bar)
+
 
 def _plot_results():
     import plot_results
@@ -255,7 +293,15 @@ def hz_edges(group, pr):
     wall = (g['domain_wall'].to_numpy(dtype=object) if 'domain_wall' in g
             else np.full(len(g), None, dtype=object))
     trusted = g['termination'].isin(pr.HABITABLE).to_numpy() & np.isfinite(T)
-    hab = trusted & (T > pr.T_SNOWBALL) & (T < pr.T_RUNAWAY)
+
+    # A temperature window alone is not a habitability test in this model. Two states pass
+    # `T < T_RUNAWAY` without being habitable at all: one past the runaway greenhouse, whose T is
+    # read off the hot branch (see `_past_runaway`), and one above the OLR fit's 350 K ceiling,
+    # where the climate model is extrapolating. Both are excluded here rather than by moving
+    # T_RUNAWAY, which is a plot_results convention shared with every other figure.
+    S_ok = np.array([not _past_runaway(s, p) for s, p in
+                     zip(S, g['P_CO2'].to_numpy(dtype=float))])
+    hab = trusted & (T > pr.T_SNOWBALL) & (T < pr.T_RUNAWAY) & (T <= OLR_FIT_T_MAX) & S_ok
     if not hab.any():
         return None
 
@@ -275,7 +321,10 @@ def hz_edges(group, pr):
         if trusted[i1 + 1] and T[i1 + 1] >= pr.T_RUNAWAY:
             inner = float(np.interp(pr.T_RUNAWAY, [T[i1], T[i1 + 1]], [S[i1], S[i1 + 1]]))
             inner_kind = 'crossing'
-        elif wall[i1 + 1] == 'hot':
+        elif wall[i1 + 1] == 'hot' or not S_ok[i1 + 1]:
+            # `not S_ok` is the runaway greenhouse: the neighbour has no cool-branch solution, so
+            # the edge lies in this interval. Not interpolated -- the neighbour's T is on the hot
+            # branch, so a line drawn through it has no meaning.
             inner, inner_kind = 0.5 * (S[i1] + S[i1 + 1]), 'bracketed'
 
     return float(outer), float(inner), outer_kind, inner_kind
