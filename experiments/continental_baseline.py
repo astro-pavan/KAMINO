@@ -698,6 +698,108 @@ def plot_weathering_crossover(series, output_path, pr):
     return crossings
 
 
+def plot_weathering_ratio_map(series, output_path, pr, levels=13):
+    """Contour map of seafloor / continental alkalinity flux over instellation x land fraction.
+
+    The quantity is a POLARITY -- which of the two sinks is winning -- so it is contoured as
+    log10(seafloor / continental) on a diverging scale with a neutral midpoint pinned to a ratio
+    of 1, and the ratio = 1 contour is drawn as a solid line. That line is the answer to "where
+    does seafloor weathering take over": everything above it (toward less land) is
+    seafloor-dominated, everything below is continental-dominated.
+
+    Land fraction 0 is NOT on the map. Continental weathering there is exactly zero, so the ratio
+    is infinite rather than large -- it is the limit the map runs toward, not a row in it.
+
+    Only steady states (converged, or integrated to 2 Gyr) are contoured. A run stopped at a
+    domain wall was still evolving when the model gave up, so its two fluxes are not a balance of
+    anything; those cells are left blank and marked, rather than interpolated through silently.
+    """
+    lands = sorted(l for l in series if l > 0)
+    if len(lands) < 2:
+        print("Fewer than two positive land fractions -- skipping the ratio map.")
+        return None
+
+    ratio, dropped_pts = {}, []
+    for land in lands:
+        group = series[land]
+        steady = group[group['termination'].isin(pr.HABITABLE)]
+        for _, r in group.iterrows():
+            if r['name'] not in set(steady['name']):
+                dropped_pts.append((float(r['instellation']), land))
+        if steady.empty:
+            continue
+        cont, sea = _alk_fluxes(steady)
+        for s, c, f in zip(steady['instellation'], cont, sea):
+            if np.isfinite(c) and np.isfinite(f) and c > 0 and f > 0:
+                ratio[(float(s), land)] = f / c
+
+    if not ratio:
+        print("No steady-state runs with both fluxes positive -- skipping the ratio map.")
+        return None
+
+    s_vals = sorted({s for s, _ in ratio})
+    Z = np.full((len(lands), len(s_vals)), np.nan)
+    for i, land in enumerate(lands):
+        for j, s in enumerate(s_vals):
+            v = ratio.get((s, land))
+            if v is not None:
+                Z[i, j] = np.log10(v)
+    Zm = np.ma.masked_invalid(Z)
+
+    # Diverging about ratio = 1, but NOT forced symmetric. The ratio runs from ~1e-3.5 to only
+    # ~1e0.5, so a symmetric range would reserve half the ramp for values that do not occur and
+    # squeeze every real contrast into one end. TwoSlopeNorm scales the two sides independently,
+    # which keeps the neutral midpoint pinned to 1 -- the only value that means anything here --
+    # while both halves still use their full colour range.
+    zmin, zmax = float(np.nanmin(Z)), float(np.nanmax(Z))
+    step = 0.5                                   # half-decade bands, so 0 is always a boundary
+    lo = np.floor(zmin / step) * step
+    hi = np.ceil(zmax / step) * step
+    bands = np.arange(lo, hi + 0.5 * step, step)
+    norm = pr.mcolors.TwoSlopeNorm(vmin=lo, vcenter=0.0, vmax=max(hi, step))
+    cmap = pr.cmr.fusion_r          # diverging, neutral (white) midpoint at ratio = 1
+
+    fig, ax = pr.plt.subplots(1, 1, figsize=pr.figure_size('single', height=2.9))
+    cf = ax.contourf(s_vals, lands, Zm, levels=bands, cmap=cmap, norm=norm, extend='both')
+    # The crossover itself, drawn on top of the fill.
+    if np.nanmin(Z) < 0 < np.nanmax(Z):
+        cs = ax.contour(s_vals, lands, Zm, levels=[0.0], colors='k', linewidths=1.4)
+        ax.clabel(cs, fmt={0.0: 'equal'}, fontsize=7, inline=True)
+
+    for s, land in dropped_pts:
+        ax.plot(s, land, marker='x', color='0.45', markersize=3.5, mew=0.9, zorder=4)
+
+    ax.set_yscale('log')
+    ax.set_xlabel('Instellation (S/S₀)')
+    ax.set_ylabel('Land fraction')
+    # A small margin on both axes so the markers on the edge rows and columns are not sliced in
+    # half by the frame; the y margin is taken in log space, where that axis lives.
+    dx = 0.02 * (max(s_vals) - min(s_vals))
+    dy = 0.04 * (np.log10(max(lands)) - np.log10(min(lands)))
+    ax.set_xlim(min(s_vals) - dx, max(s_vals) + dx)
+    ax.set_ylim(10 ** (np.log10(min(lands)) - dy), 10 ** (np.log10(max(lands)) + dy))
+
+    # Ticks as ratios, not decades of a log ratio -- the reader wants "10x", not "1 dex".
+    ticks = [t for t in range(-9, 10) if lo <= t <= hi]
+    cbar = fig.colorbar(cf, ax=ax, pad=0.02, aspect=22, ticks=ticks)
+    cbar.set_label('Seafloor / continental alkalinity flux')
+    cbar.set_ticklabels([('1' if t == 0 else f'$10^{{{t}}}$') for t in ticks])
+    if np.nanmin(Z) < 0 < np.nanmax(Z):
+        cbar.ax.axhline(0, color='k', linewidth=1.2)
+
+    pr._save_fig(fig, os.path.join(output_path, 'weathering_ratio_map.png'))
+
+    print("\nSeafloor / continental alkalinity flux (steady states only):")
+    print(f"  {'land':>8} " + ' '.join(f'{s:>8.2f}' for s in s_vals))
+    for i, land in enumerate(reversed(lands)):
+        row = Z[len(lands) - 1 - i]
+        cells = [(f"{10 ** v:8.2g}" if np.isfinite(v) else f"{'--':>8}") for v in row]
+        print(f"  {land:8g} " + ' '.join(cells))
+    if dropped_pts:
+        print(f"  ({len(dropped_pts)} cell(s) blank: no steady state)")
+    return ratio
+
+
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
     if pe is not None:
@@ -729,6 +831,7 @@ def make_plots(output_path=OUTPUT_PATH, pe=None):
         print(f"\n  land fractions on disk: {sorted(series, reverse=True)}")
     plot_land_fraction_series(series, output_path, pr)
     plot_weathering_crossover(series, output_path, pr)
+    plot_weathering_ratio_map(series, output_path, pr)
     # plot_results' own continental figures: the four-panel baseline and the ion-ratio chart
     # against modern seawater. They select on this same reference, so they read these runs.
     pr.plot_continental_baseline(df, output_path)
