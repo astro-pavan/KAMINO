@@ -43,9 +43,38 @@ from kamino.constants import EARTH_MANTLE_MG_SI, EARTH_DELTA_IW
 # denudation rate was calibrated at, not an arbitrary point on a continuum.
 LAND_FRACTION = 0.3
 
-# Both arms of the comparison. 0.0 is the ocean world every other sweep runs; it is listed second
-# so the continental runs -- the ones that do not exist yet -- are submitted first.
+# Both arms of the baseline comparison. 0.0 is the ocean world every other sweep runs; it is
+# listed second so the continental runs -- the ones that do not exist yet -- are submitted first.
 LAND_ARMS = [LAND_FRACTION, 0.0]
+
+# ── The land-fraction series ──────────────────────────────────────────────────────────────────
+# Turns the continental sink down from Earth's to nothing, to find where seafloor weathering
+# takes over as the dominant alkalinity source.
+#
+# This is a clean one-variable experiment because of how planet.py scales the two sinks against
+# the ocean's mass, which is itself set by the seafloor area (2026-09-04 area fix):
+#
+#   continental  F_sil * (f * A)     / (d * (1-f) * A * 1000)   ->  scales as f / (1-f)
+#   seafloor     flux_LT * ((1-f)*A) / (d * (1-f) * A * 1000)   ->  independent of f
+#
+# So land fraction turns the continental sink up and down and leaves the seafloor sink's
+# CONCENTRATION rate geometrically untouched. The seafloor flux still responds, but only through
+# the climate and ocean chemistry it shares with the continents, never through geometry.
+#
+# LOG spacing, because the crossover is nowhere near the middle of a linear range. Measured on
+# the land 0.3 runs, continental alkalinity is ~21 Tmol eq/yr against a seafloor ~0.018 -- a
+# ratio near 1200, and near 1700 once the area fix makes continental 1.43x stronger. Three and a
+# half decades of land fraction are needed to close that, and half-decade steps locate the
+# crossover to within a factor of ~3.
+#
+# 0.2 and 0.1 are kept at full resolution because that is the range real terrestrial planets
+# plausibly occupy; below 0.03 the grid only has to bracket a crossing. Exactly 0.0 is included
+# as the end member -- it is the ocean world, already on disk, and costs nothing.
+LAND_FRACTIONS = [0.3, 0.2, 0.1, 0.03, 0.01, 0.003, 0.001, 0.0003, 0.0]
+
+# Which land fractions __main__ sweeps. Set False for just the two-arm baseline (0.3 and 0),
+# which is the subset the comparison figures use.
+RUN_LAND_FRACTION_SWEEP = True
 
 # These are ints on purpose. `_run_name` interpolates them with plain str(), so 1 and 1.0 give
 # 'crust_1' and 'crust_1.0' -- two names for one config, and the ocean arm would stop matching
@@ -265,6 +294,58 @@ def _arm(df, land, pr):
     ].sort_values('instellation')
 
 
+def _alk_fluxes(group):
+    """Continental and seafloor alkalinity flux at each run's final state, Tmol eq/yr.
+
+    Both are put on the SAME basis -- the flux the ODE actually applies -- so the ratio means
+    what it looks like:
+
+    * continental is `get_continental_weathering_flux(T, pCO2)` over `land_fraction * surface`,
+      which is how planet.py applies it. On modern Earth this is 8 Tmol eq/yr by calibration
+      (constants.EARTH_CONTINENTAL_WEATHERING_REF), so the number is readable on sight.
+    * seafloor is the recorded `alk_flux` diagnostic rescaled from the FIXED reference area it is
+      stored on to the area the model actually integrates over. planet.py normalises the
+      diagnostic on A_SEAFLOOR_EARTH (0.7 of the surface, a constant) so that it always agrees
+      with plot_results, but `F_diss` is applied over `seafloor_area = (1 - land_fraction) * A`.
+      The conversion is therefore x (1 - land_fraction) / EARTH_OCEAN_FRACTION -- exactly 1 at
+      Earth's land fraction, and 1.43x on a land-free world.
+
+    Returns (continental, seafloor) arrays aligned with `group`.
+    """
+    from kamino.weathering import get_continental_weathering_flux
+    from kamino.chemistry import alk_idx
+    from kamino.constants import YR, R_EARTH, EARTH_OCEAN_FRACTION
+
+    surface = 4 * np.pi * R_EARTH ** 2
+    cont = np.full(len(group), np.nan)
+    for i, (_, r) in enumerate(group.iterrows()):
+        T, p, land = r['T'], r['P_CO2'], r['land_fraction']
+        if not (np.isfinite(T) and np.isfinite(p)) or land <= 0:
+            cont[i] = 0.0 if land <= 0 else np.nan
+            continue
+        f = get_continental_weathering_flux(float(T), float(p) * 1e5)   # pCO2 stored in bar
+        cont[i] = float(f[alk_idx]) * land * surface * YR / 1e12
+    sea = (group['alk_flux'].to_numpy(dtype=float)
+           * (1.0 - group['land_fraction'].to_numpy(dtype=float)) / EARTH_OCEAN_FRACTION)
+    return cont, sea
+
+
+def _crossover_land_fraction(lands, ratios):
+    """Land fraction where continental/seafloor alkalinity flux passes 1, log-interpolated.
+
+    Returns None when the sampled land fractions do not bracket a crossing -- the sweep then
+    bounds the crossover rather than locating it, which the caller must say rather than
+    extrapolate off the end of the grid.
+    """
+    pairs = sorted((float(l), float(r)) for l, r in zip(lands, ratios)
+                   if l > 0 and np.isfinite(r) and r > 0)
+    for (l0, r0), (l1, r1) in zip(pairs, pairs[1:]):
+        if (r0 - 1.0) * (r1 - 1.0) <= 0 and r0 != r1:
+            w = (0.0 - np.log10(r0)) / (np.log10(r1) - np.log10(r0))
+            return float(10 ** (np.log10(l0) + w * (np.log10(l1) - np.log10(l0))))
+    return None
+
+
 def hz_edges(group, pr):
     """Instellation limits of the habitable band along one instellation line.
 
@@ -463,6 +544,160 @@ def _report(arms, edges, pr):
                       f"{here:.3f}. Update it, or the HZ lines on every other figure are stale.")
 
 
+def _land_series(df, output_path, pr):
+    """{land_fraction: instellation-sorted rows with diagnostics}, for the land fractions present."""
+    series = {}
+    for land in LAND_FRACTIONS:
+        sub = _arm(df, land, pr)
+        if not sub.empty:
+            series[land] = pr._add_diag_columns(sub, output_path).sort_values('instellation')
+    return series
+
+
+def _land_colours(lands, pr):
+    """Colour per land fraction, log-scaled over the positive ones.
+
+    0 cannot sit on a log scale and is not just 'a bit less land' -- it is the land-free ocean
+    world every other sweep runs. It keeps the baseline figures' blue and its own legend entry.
+    """
+    positive = sorted(l for l in lands if l > 0)
+    cmap = pr.cmr.ember
+    # A single positive value gives LogNorm(vmin == vmax), which cannot be normalised. That
+    # happens whenever only the baseline's own land fraction is on disk -- i.e. before the
+    # land-fraction sweep has been run -- so it is the ordinary case, not an error.
+    norm = (pr.mcolors.LogNorm(vmin=min(positive), vmax=max(positive))
+            if len(positive) > 1 else None)
+    if norm is not None:
+        colours = {l: cmap(norm(l)) for l in positive}
+    else:
+        colours = {l: ARM_COLOURS[LAND_FRACTION] for l in positive}
+    if 0.0 in lands:
+        colours[0.0] = ARM_COLOURS[0.0]
+    return colours, cmap, norm
+
+
+def plot_land_fraction_series(series, output_path, pr):
+    """T, pCO2, pH and salinity against instellation, one line per land fraction."""
+    if len(series) < 2:
+        print("Fewer than two land fractions on disk -- skipping the land-fraction series.")
+        return
+    colours, cmap, norm = _land_colours(series, pr)
+
+    for cols, sfx in pr._panel_groups(True):
+        fig, axes = pr.plt.subplots(len(cols), 1, sharex=True,
+                                    figsize=pr.figure_size('single', n_rows=len(cols),
+                                                           row_height=2.0))
+        for land, group in sorted(series.items(), reverse=True):
+            _draw_arm(axes, group, colours[land], cols, pr)
+        pr._style_axes(axes, cols)
+        if norm is not None:
+            positive = sorted(l for l in series if l > 0)
+            pr._add_colorbar(fig, list(axes), cmap, norm, 'Land fraction',
+                             ticks=positive, ticklabels=[f'{v:g}' for v in positive],
+                             aspect=len(cols) * 7.5)
+        handles = []
+        if 0.0 in series:
+            handles.append(pr.Line2D([0], [0], color=ARM_COLOURS[0.0], linewidth=1.6,
+                                     label='Land free (0)'))
+        handles += list(pr.DA_LEGEND)
+        pr._add_figure_legend(fig, axes, handles)
+        pr._save_fig(fig, os.path.join(output_path, f'land_fraction_series{sfx}.png'))
+
+
+def plot_weathering_crossover(series, output_path, pr):
+    """Where seafloor weathering overtakes continental weathering as land fraction falls.
+
+    Left: both alkalinity fluxes against land fraction at the instellation nearest Earth's.
+    Right: the crossover land fraction across instellation.
+
+    Only runs that reached a steady state (converged, or integrated to 2 Gyr) are used. A run
+    stopped at a domain wall is a planet still evolving when the model gave up, and its fluxes
+    are not a balance of anything -- reading a crossover off one would be reading it off a
+    transient.
+    """
+    if len(series) < 2:
+        print("Fewer than two land fractions on disk -- skipping the crossover figure.")
+        return None
+
+    # (land, S) -> (continental, seafloor), steady states only.
+    rows, dropped = {}, 0
+    for land, group in series.items():
+        steady = group[group['termination'].isin(pr.HABITABLE)]
+        dropped += len(group) - len(steady)
+        if steady.empty:
+            continue
+        cont, sea = _alk_fluxes(steady)
+        for s, c, f in zip(steady['instellation'], cont, sea):
+            if np.isfinite(c) and np.isfinite(f) and f > 0:
+                rows[(float(land), float(s))] = (float(c), float(f))
+    if not rows:
+        print("No steady-state runs to compare fluxes on -- skipping the crossover figure.")
+        return None
+    if dropped:
+        print(f"  crossover: ignoring {dropped} run(s) that never reached a steady state.")
+
+    s_vals = sorted({s for _, s in rows})
+    crossings = {}
+    for s in s_vals:
+        lands = [l for (l, ss) in rows if ss == s]
+        ratios = [rows[(l, s)][0] / rows[(l, s)][1] for l in lands]
+        got = _crossover_land_fraction(lands, ratios)
+        if got is not None:
+            crossings[s] = got
+
+    s_ref = min(s_vals, key=lambda s: abs(s - EARTH['S']))
+    fig, (ax, ax_c) = pr.plt.subplots(1, 2, figsize=pr.figure_size('double', height=2.8))
+
+    lands_ref = sorted(l for (l, s) in rows if s == s_ref)
+    if lands_ref:
+        cont = [rows[(l, s_ref)][0] for l in lands_ref]
+        sea = [rows[(l, s_ref)][1] for l in lands_ref]
+        x = [max(l, 1e-4) for l in lands_ref]      # 0 has no place on a log axis
+        ax.plot(x, cont, color=ARM_COLOURS[0.3], marker='o', markersize=3, linewidth=1.6,
+                label='Continental')
+        ax.plot(x, sea, color=ARM_COLOURS[0.0], marker='s', markersize=3, linewidth=1.6,
+                label='Seafloor (LT)')
+        if s_ref in crossings:
+            ax.axvline(crossings[s_ref], color='0.35', linestyle=(0, (6, 3)), linewidth=1.0)
+            ax.annotate(f'{crossings[s_ref]:.3g}', xy=(crossings[s_ref], max(cont)),
+                        xytext=(3, -2), textcoords='offset points', fontsize=7)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('Land fraction')
+    ax.set_ylabel('Alkalinity flux (Tmol eq/yr)')
+    ax.set_title(f'S = {s_ref:g}', fontsize=8)
+    ax.grid(True, linestyle='--', alpha=0.4)
+    ax.legend(fontsize=7, frameon=False)
+
+    if crossings:
+        ax_c.plot(list(crossings), [crossings[s] for s in crossings], color='k',
+                  marker='o', markersize=3, linewidth=1.4)
+    ax_c.set_yscale('log')
+    ax_c.set_xlabel('Instellation (S/S₀)')
+    ax_c.set_ylabel('Crossover land fraction')
+    ax_c.grid(True, linestyle='--', alpha=0.4)
+    pr._save_fig(fig, os.path.join(output_path, 'weathering_crossover.png'))
+
+    print("\nContinental vs seafloor alkalinity flux (Tmol eq/yr), steady states only:")
+    print(f"  {'land':>8} " + ' '.join(f'{s:>9.2f}' for s in s_vals))
+    for land in sorted(series, reverse=True):
+        cells = []
+        for s in s_vals:
+            v = rows.get((land, s))
+            cells.append(f"{v[0] / v[1]:9.3g}" if v else f"{'--':>9}")
+        print(f"  {land:8g} " + ' '.join(cells))
+    print("  (continental / seafloor; < 1 means seafloor weathering dominates)")
+    if crossings:
+        lo, hi = min(crossings.values()), max(crossings.values())
+        print(f"  crossover land fraction: {lo:.3g} to {hi:.3g} over S = "
+              f"{min(crossings):g}-{max(crossings):g}")
+    else:
+        ratios_all = [c / f for c, f in rows.values()]
+        print(f"  no crossing inside the sampled land fractions -- ratio spans "
+              f"{min(ratios_all):.3g} to {max(ratios_all):.3g}; extend LAND_FRACTIONS to bracket it.")
+    return crossings
+
+
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
     if pe is not None:
@@ -486,6 +721,14 @@ def make_plots(output_path=OUTPUT_PATH, pe=None):
     plot_baseline_vs_ocean(arms, output_path, pr)
     edges = plot_habitable_zone(arms, output_path, pr)
     _report(arms, edges or {}, pr)
+
+    # The land-fraction series: only draws once intermediate land fractions are on disk, so this
+    # is a no-op until the sweep has been run with RUN_LAND_FRACTION_SWEEP.
+    series = _land_series(df, output_path, pr)
+    if len(series) > len(LAND_ARMS):
+        print(f"\n  land fractions on disk: {sorted(series, reverse=True)}")
+    plot_land_fraction_series(series, output_path, pr)
+    plot_weathering_crossover(series, output_path, pr)
     # plot_results' own continental figures: the four-panel baseline and the ion-ratio chart
     # against modern seawater. They select on this same reference, so they read these runs.
     pr.plot_continental_baseline(df, output_path)
@@ -509,7 +752,8 @@ if __name__ == '__main__':
 
     if not args.plot_only:
         pe_states = [PE_REDUCING, PE_OXIDISING] if args.both_redox else PE_STATES
-        run(_combos(pe_states=pe_states), output_path=args.path)
+        lands = LAND_FRACTIONS if RUN_LAND_FRACTION_SWEEP else LAND_ARMS
+        run(_combos(land_arms=lands, pe_states=pe_states), output_path=args.path)
 
     if not args.no_plots:
         make_plots(output_path=args.path, pe=args.pe)

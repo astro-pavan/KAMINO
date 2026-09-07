@@ -174,7 +174,7 @@ CONTINENTAL_HZ_INNER = 1.125
 # Whether the HZ lines are drawn. THIS is the switch: set it to True to put the edges on every
 # instellation figure in one go. Off by default so existing figures are unchanged. Every
 # plotting function also takes show_hz=True/False to override it for one figure.
-SHOW_HZ_EDGES = False
+SHOW_HZ_EDGES = True
 
 
 def _draw_hz_edges(ax, show_hz=None):
