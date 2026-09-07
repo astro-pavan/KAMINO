@@ -43,6 +43,10 @@ from kamino.constants import EARTH_MANTLE_MG_SI, EARTH_DELTA_IW
 # denudation rate was calibrated at, not an arbitrary point on a continuum.
 LAND_FRACTION = 0.3
 
+# Earth's mantle molar Mg/Si (1.25). Named apart from the GRID_MG_SI axis below so the two
+# cannot be confused: this one is the reference every baseline figure pins to.
+MG_SI_EARTH = float(EARTH_MANTLE_MG_SI)
+
 # Both arms of the baseline comparison. 0.0 is the ocean world every other sweep runs; it is
 # listed second so the continental runs -- the ones that do not exist yet -- are submitted first.
 LAND_ARMS = [LAND_FRACTION, 0.0]
@@ -72,9 +76,34 @@ LAND_ARMS = [LAND_FRACTION, 0.0]
 # as the end member -- it is the ocean world, already on disk, and costs nothing.
 LAND_FRACTIONS = [0.3, 0.2, 0.1, 0.03, 0.01, 0.003, 0.001, 0.0003, 0.0]
 
-# Which land fractions __main__ sweeps. Set False for just the two-arm baseline (0.3 and 0),
-# which is the subset the comparison figures use.
-RUN_LAND_FRACTION_SWEEP = True
+# ── The coarse multi-axis grid ────────────────────────────────────────────────────────────────
+# Trades resolution on the two axes above for the three the series holds fixed, to ask whether
+# the continental/seafloor crossover MOVES with tectonics and crust chemistry or just sits where
+# the Earth-reference series put it (~1e-3 land fraction).
+#
+# Instellation coarsens to 0.1 steps over 0.4-1.2: outside that every run left the domain in the
+# fine series, so the trimmed range costs nothing. Land fraction coarsens to decade steps, which
+# locates a crossover to within a factor of ~10 -- enough to see it move, not enough to quote.
+# Both keep values the fine grids already use, so no run is orphaned between designs.
+COARSE_INSTELLATION = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+COARSE_LAND_FRACTIONS = [0.3, 0.03, 0.003, 0.0003, 0.0]
+
+# Three points per decade-and-a-bit on each tectonic axis, bracketing Earth. Ints where
+# parameter_sweep uses ints (see the note above), so the land-free corners match the runs
+# sweep_basic and sweep_basic_high_mgsi already wrote and are reused rather than recomputed.
+GRID_OUTGASSING = [0.1, 1, 10]
+GRID_CRUST = [0.1, 1, 10]
+
+# Earth's mantle Mg/Si and the olivine-rich end member. 1.8 sits past the ~1.69 ceiling section
+# 25.4 measured, but that predates Akermanite closing the norm (25.5); at 1.8 the assemblage sums
+# to 1.0 with no mass-balance warning, Akermanite taking 11 wt%. State that if these are published.
+GRID_MG_SI = [MG_SI_EARTH, 1.8]
+
+# Which sweep __main__ runs -- edit this rather than passing a flag.
+#   'baseline' : the two-arm instellation line (land 0.3 and 0), Earth on every other axis
+#   'land'     : the land-fraction series at Earth outgassing and crust production
+#   'grid'     : the coarse instellation x land x outgassing x crust x Mg/Si factorial
+SWEEP = 'grid'
 
 # These are ints on purpose. `_run_name` interpolates them with plain str(), so 1 and 1.0 give
 # 'crust_1' and 'crust_1.0' -- two names for one config, and the ocean arm would stop matching
@@ -84,7 +113,6 @@ CRUST_PRODUCTION = 1          # x Earth
 OCEAN_DEPTH = 3000            # m
 
 REVERSE_WEATHERING = True
-MG_SI = float(EARTH_MANTLE_MG_SI)      # mantle molar Mg/Si, Earth's 1.25
 DELTA_IW = float(EARTH_DELTA_IW)       # core-formation oxygen fugacity, Earth's -2
 
 # The reducing arm only. Every parameter_sweep sweep runs both redox states because the model has
@@ -114,13 +142,36 @@ def _combos(instellation=None, land_arms=None, pe_states=None):
     EXPENSIVE ones on the land arm.
     """
     combos = [
-        (s, OUTGASSING, CRUST_PRODUCTION, OCEAN_DEPTH, REVERSE_WEATHERING, MG_SI, DELTA_IW,
+        (s, OUTGASSING, CRUST_PRODUCTION, OCEAN_DEPTH, REVERSE_WEATHERING, MG_SI_EARTH, DELTA_IW,
          ALPHA_CALIB, KD_MG_CALIB, K_NA_CALIB, pe, land)
         for s, land, pe in itertools.product(instellation or INSTELLATION,
                                              land_arms or LAND_ARMS,
                                              pe_states or PE_STATES)
     ]
     combos.sort(key=lambda c: (ps._cost_rank(c), c[11] == 0.0))
+    return combos
+
+
+def _grid_combos(instellation=None, lands=None, outgassing=None, crust=None,
+                 mg_si=None, pe_states=None):
+    """Combos for the coarse factorial: instellation x land x outgassing x crust x Mg/Si.
+
+    Same argument order and cost ordering as `_combos`; only the axes differ. The land-free
+    corners reproduce the names `sweep_basic` and `sweep_basic_high_mgsi` already wrote, so they
+    are reused off disk and only the land-bearing runs actually cost anything.
+    """
+    combos = [
+        (s, o, c, OCEAN_DEPTH, REVERSE_WEATHERING, mg, DELTA_IW,
+         ALPHA_CALIB, KD_MG_CALIB, K_NA_CALIB, pe, land)
+        for s, land, o, c, mg, pe in itertools.product(
+            instellation or COARSE_INSTELLATION,
+            lands or COARSE_LAND_FRACTIONS,
+            outgassing or GRID_OUTGASSING,
+            crust or GRID_CRUST,
+            mg_si or GRID_MG_SI,
+            pe_states or PE_STATES)
+    ]
+    combos.sort(key=lambda x: (ps._cost_rank(x), x[11] == 0.0))
     return combos
 
 
@@ -144,11 +195,20 @@ def run(combos, output_path=OUTPUT_PATH):
     print(f"Running {total} simulations with {WORKERS} worker processes "
           f"({on_disk} already on disk, reused unless parameter_sweep.RERUN)...")
     print(f"Output: {output_path}")
-    print(f"  instellation: {min(INSTELLATION):g} to {max(INSTELLATION):g}")
-    print(f"  land_fraction: {sorted({c[11] for c in combos})}")
+    # Every axis is read off the COMBOS, never off the module constants. The constants describe
+    # the baseline sweep only, so printing them made the grid sweep's log claim it had run at
+    # Earth outgassing, Earth crust production and Earth Mg/Si while it was doing nothing of the
+    # kind. The log is the record of what was run, so it has to be derived from what was run.
+    def _axis(i):
+        return ', '.join(f'{v:g}' for v in sorted({c[i] for c in combos}))
+
+    print(f"  instellation:   {_axis(0)}")
+    print(f"  land_fraction:  {_axis(11)}")
+    print(f"  outgassing:     {_axis(1)}")
+    print(f"  crust prod.:    {_axis(2)}")
+    print(f"  mantle Mg/Si:   {_axis(5)}")
+    print(f"  ocean depth:    {_axis(3)} m      dIW: {_axis(6)}")
     print(f"  pe: {[f'{v:g} ({_pe_label(v)})' for v in sorted({c[10] for c in combos})]}")
-    print(f"  outgassing={OUTGASSING:g}x  crust={CRUST_PRODUCTION:g}x  "
-          f"depth={OCEAN_DEPTH:g} m  Mg/Si={MG_SI:g}  dIW={DELTA_IW:g}")
     print(f"  alpha={ALPHA_CALIB:g}  kd_mg_ht={KD_MG_CALIB:g}  k_na={K_NA_CALIB:g}")
     ps._warn_constant_drift()
 
@@ -331,7 +391,12 @@ def _alk_fluxes(group):
 
 
 def _crossover_land_fraction(lands, ratios):
-    """Land fraction where continental/seafloor alkalinity flux passes 1, log-interpolated.
+    """Land fraction where the two alkalinity fluxes are equal, log-interpolated.
+
+    `ratios` may be given either way up. The crossing sits where log10(ratio) = 0, and inverting
+    every ratio flips the sign of both the numerator and the denominator of the interpolation
+    weight, so the land fraction it returns is identical. Callers here pass continental/seafloor
+    in one place and seafloor/continental in the other; both are correct.
 
     Returns None when the sampled land fractions do not bracket a crossing -- the sweep then
     bounds the crossover rather than locating it, which the caller must say rather than
@@ -800,6 +865,153 @@ def plot_weathering_ratio_map(series, output_path, pr, levels=13):
     return ratio
 
 
+def _grid_slice(df, pr, outgassing, crust, mg_si):
+    """{land_fraction: rows} for one (outgassing, crust production, Mg/Si) cell of the grid.
+
+    Restricted to the COARSE axes even where finer runs exist. The Earth-reference cell
+    (out 1x, crust 1x, Mg/Si 1.25) is also where the land-fraction series ran, so without this it
+    would carry ~3x the instellation samples and two extra land fractions. Contour interpolation
+    depends on sampling density, so that one panel would be smoother and reach further in
+    instellation than its neighbours -- a difference in the sampling, read as a difference in the
+    physics. The fine runs keep their own figure (plot_weathering_ratio_map).
+    """
+    sub = df[
+        df['instellation'].isin(COARSE_INSTELLATION) &
+        df['land_fraction'].apply(
+            lambda v: any(np.isclose(v, l) for l in COARSE_LAND_FRACTIONS)) &
+        pr._ref_redox(df) &
+        pr._ref_chem(df) &
+        df['reverse_weathering'] &
+        (df['ocean_depth'] == OCEAN_DEPTH) &
+        (df['outgassing'] == outgassing) &
+        (df['crust_production'] == crust) &
+        (df['f_HT'] == 0.0) &
+        np.isclose(df['mg_si'], mg_si) &
+        np.isclose(df['delta_iw'], DELTA_IW)
+    ]
+    return {float(l): sub[np.isclose(sub['land_fraction'], l)].sort_values('instellation')
+            for l in sorted(sub['land_fraction'].unique())}
+
+
+def _ratio_cells(series, pr, output_path):
+    """{(instellation, land): seafloor/continental} for steady states, plus the skipped cells."""
+    ratio, skipped = {}, []
+    for land, group in series.items():
+        if land <= 0 or group.empty:
+            continue
+        group = pr._add_diag_columns(group, output_path)
+        steady = group[group['termination'].isin(pr.HABITABLE)]
+        names = set(steady['name'])
+        skipped += [(float(r['instellation']), land) for _, r in group.iterrows()
+                    if r['name'] not in names]
+        if steady.empty:
+            continue
+        cont, sea = _alk_fluxes(steady)
+        for s, c, f in zip(steady['instellation'], cont, sea):
+            if np.isfinite(c) and np.isfinite(f) and c > 0 and f > 0:
+                ratio[(float(s), land)] = f / c
+    return ratio, skipped
+
+
+def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
+    """The ratio map faceted over the coarse grid: crust production x outgassing, per Mg/Si.
+
+    One figure per mantle Mg/Si, so the two compositions are compared panel-for-panel rather than
+    by colour. Every panel shares ONE colour scale, computed across BOTH figures -- otherwise each
+    panel would renormalise to its own range and the question the grid exists to answer (does the
+    crossover move with tectonics or crust chemistry?) would be invisible, because every panel
+    would look alike whatever its numbers were.
+
+    Same conventions as the single map: diverging about a ratio of 1, land fraction 0 excluded
+    (continental weathering is exactly zero there, so the ratio is infinite), steady states only,
+    and cells without one left blank and marked.
+    """
+    mg_vals = [m for m in GRID_MG_SI if np.isclose(df['mg_si'], m).any()]
+    if not mg_vals:
+        print("No grid runs on disk -- skipping the faceted ratio map.")
+        return None
+
+    cells = {}
+    for mg in mg_vals:
+        for c in GRID_CRUST:
+            for o in GRID_OUTGASSING:
+                series = _grid_slice(df, pr, o, c, mg)
+                if series:
+                    cells[(mg, c, o)] = _ratio_cells(series, pr, output_path)
+
+    allv = [np.log10(v) for r, _ in cells.values() for v in r.values()]
+    if not allv:
+        print("No steady-state grid runs with both fluxes positive -- skipping.")
+        return None
+    lo = np.floor(min(allv) / step) * step
+    hi = np.ceil(max(allv) / step) * step
+    bands = np.arange(lo, hi + 0.5 * step, step)
+    norm = pr.mcolors.TwoSlopeNorm(vmin=lo, vcenter=0.0, vmax=max(hi, step))
+    cmap = pr.cmr.fusion_r
+    ticks = [t for t in range(-9, 10) if lo <= t <= hi]
+
+    for mg in mg_vals:
+        fig, axes = pr.plt.subplots(len(GRID_CRUST), len(GRID_OUTGASSING), sharex=True,
+                                    sharey=True, squeeze=False,
+                                    figsize=pr.figure_size('double', height=5.0))
+        cf = None
+        for i, c in enumerate(reversed(GRID_CRUST)):
+            for j, o in enumerate(GRID_OUTGASSING):
+                ax = axes[i, j]
+                got = cells.get((mg, c, o))
+                ratio, skipped = got if got else ({}, [])
+                s_vals = sorted({s for s, _ in ratio})
+                lands = sorted({l for _, l in ratio})
+                if len(s_vals) > 1 and len(lands) > 1:
+                    Z = np.full((len(lands), len(s_vals)), np.nan)
+                    for a, land in enumerate(lands):
+                        for b, sv in enumerate(s_vals):
+                            v = ratio.get((sv, land))
+                            if v is not None:
+                                Z[a, b] = np.log10(v)
+                    Zm = np.ma.masked_invalid(Z)
+                    cf = ax.contourf(s_vals, lands, Zm, levels=bands, cmap=cmap, norm=norm,
+                                     extend='both')
+                    if np.nanmin(Z) < 0 < np.nanmax(Z):
+                        ax.contour(s_vals, lands, Zm, levels=[0.0], colors='k', linewidths=1.2)
+                else:
+                    ax.text(0.5, 0.5, 'no steady state', transform=ax.transAxes, ha='center',
+                            va='center', fontsize=7, color='0.5', style='italic')
+                for sv, land in skipped:
+                    ax.plot(sv, land, marker='x', color='0.45', markersize=3, mew=0.8)
+                ax.set_yscale('log')
+                ax.grid(True, linestyle='--', alpha=0.3)
+                if i == 0:
+                    ax.set_title(f'outgassing {o:g}x', fontsize=8)
+                if j == 0:
+                    ax.set_ylabel(f'crust {c:g}x\nLand fraction', fontsize=7)
+                if i == len(GRID_CRUST) - 1:
+                    ax.set_xlabel('Instellation (S/S0)')
+
+        if cf is not None:
+            cbar = fig.colorbar(cf, ax=list(axes.ravel()), pad=0.02, aspect=30, ticks=ticks)
+            cbar.set_label('Seafloor / continental alkalinity flux')
+            cbar.set_ticklabels([('1' if t == 0 else f'$10^{{{t}}}$') for t in ticks])
+            cbar.ax.axhline(0, color='k', linewidth=1.2)
+        fig.suptitle(f'Mantle Mg/Si = {mg:g}', fontsize=9)
+        pr._save_fig(fig, os.path.join(output_path, f'weathering_ratio_grid_mgsi{mg:g}.png'))
+
+    print("\nCrossover land fraction across the grid (steady states only):")
+    print(f"  {'Mg/Si':>6} {'crust':>7} {'out':>6}   crossover (by instellation)")
+    for (mg, c, o), (ratio, _) in sorted(cells.items()):
+        s_vals = sorted({s for s, _ in ratio})
+        pts = []
+        for sv in s_vals:
+            lands = sorted({l for (s2, l) in ratio if s2 == sv})
+            got = _crossover_land_fraction(lands, [ratio[(sv, l)] for l in lands])
+            if got is not None:
+                pts.append(got)
+        span = (f"{min(pts):.2g}-{max(pts):.2g}" if pts else
+                ("none in range" if ratio else "no steady state"))
+        print(f"  {mg:6g} {c:7g} {o:6g}   {span}")
+    return cells
+
+
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
     if pe is not None:
@@ -832,6 +1044,7 @@ def make_plots(output_path=OUTPUT_PATH, pe=None):
     plot_land_fraction_series(series, output_path, pr)
     plot_weathering_crossover(series, output_path, pr)
     plot_weathering_ratio_map(series, output_path, pr)
+    plot_weathering_ratio_grid(df, output_path, pr)
     # plot_results' own continental figures: the four-panel baseline and the ion-ratio chart
     # against modern seawater. They select on this same reference, so they read these runs.
     pr.plot_continental_baseline(df, output_path)
@@ -855,8 +1068,16 @@ if __name__ == '__main__':
 
     if not args.plot_only:
         pe_states = [PE_REDUCING, PE_OXIDISING] if args.both_redox else PE_STATES
-        lands = LAND_FRACTIONS if RUN_LAND_FRACTION_SWEEP else LAND_ARMS
-        run(_combos(land_arms=lands, pe_states=pe_states), output_path=args.path)
+        if SWEEP == 'grid':
+            combos = _grid_combos(pe_states=pe_states)
+        elif SWEEP == 'land':
+            combos = _combos(land_arms=LAND_FRACTIONS, pe_states=pe_states)
+        elif SWEEP == 'baseline':
+            combos = _combos(land_arms=LAND_ARMS, pe_states=pe_states)
+        else:
+            raise SystemExit(f"SWEEP must be 'baseline', 'land' or 'grid', not {SWEEP!r}")
+        print(f"sweep: {SWEEP}")
+        run(combos, output_path=args.path)
 
     if not args.no_plots:
         make_plots(output_path=args.path, pe=args.pe)
