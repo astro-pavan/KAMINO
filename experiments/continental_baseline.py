@@ -913,23 +913,38 @@ def _grid_slice(df, pr, outgassing, crust, mg_si):
 
 
 def _ratio_cells(series, pr, output_path):
-    """{(instellation, land): seafloor/continental} for steady states, plus the skipped cells."""
-    ratio, skipped = {}, []
+    """Ratio cells for one panel: ``(ratio, not_steady, net_sink)``.
+
+    A cell can be missing for two quite different reasons, and they are returned separately so a
+    figure can mark them differently rather than leaving identical blanks:
+
+    ``not_steady``  the run never reached a steady state (left the model domain, or hit the
+                    wall-clock cap), so its fluxes are a transient, not a balance.
+    ``net_sink``    the run IS a steady state but its seafloor alkalinity flux is NEGATIVE -- the
+                    pore space precipitates more than the basalt dissolves, so the seafloor is a
+                    net alkalinity sink. That is a real outcome, not a failure; it just has no
+                    place on a log ratio. It shows up where continental weathering is enormous
+                    (~150 Tmol/yr at 10x outgassing with land), which floods the ocean with
+                    cations until pore precipitation overwhelms dissolution.
+    """
+    ratio, not_steady, net_sink = {}, [], []
     for land, group in series.items():
         if land <= 0 or group.empty:
             continue
         group = pr._add_diag_columns(group, output_path)
         steady = group[group['termination'].isin(pr.HABITABLE)]
         names = set(steady['name'])
-        skipped += [(float(r['instellation']), land) for _, r in group.iterrows()
-                    if r['name'] not in names]
+        not_steady += [(float(r['instellation']), land) for _, r in group.iterrows()
+                       if r['name'] not in names]
         if steady.empty:
             continue
         cont, sea = _alk_fluxes(steady)
         for s, c, f in zip(steady['instellation'], cont, sea):
             if np.isfinite(c) and np.isfinite(f) and c > 0 and f > 0:
                 ratio[(float(s), land)] = f / c
-    return ratio, skipped
+            elif np.isfinite(f) and f <= 0:
+                net_sink.append((float(s), land))
+    return ratio, not_steady, net_sink
 
 
 def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
@@ -980,7 +995,7 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
                 if series:
                     cells[(mg, c, o)] = _ratio_cells(series, pr, output_path)
 
-    allv = [np.log10(v) for r, _ in cells.values() for v in r.values()]
+    allv = [np.log10(v) for r, *_ in cells.values() for v in r.values()]
     if not allv:
         print("No steady-state grid runs with both fluxes positive -- skipping.")
         return None
@@ -1000,7 +1015,7 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
             for j, o in enumerate(GRID_OUTGASSING):
                 ax = axes[i, j]
                 got = cells.get((mg, c, o))
-                ratio, skipped = got if got else ({}, [])
+                ratio, skipped, sinks = got if got else ({}, [], [])
                 s_vals = sorted({s for s, _ in ratio})
                 lands = sorted({l for _, l in ratio})
                 if len(s_vals) > 1 and len(lands) > 1:
@@ -1020,6 +1035,9 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
                             va='center', fontsize=7, color='0.5', style='italic')
                 for sv, land in skipped:
                     ax.plot(sv, land, marker='x', color='0.45', markersize=3, mew=0.8)
+                for sv, land in sinks:
+                    ax.plot(sv, land, marker='o', markerfacecolor='none', markeredgecolor='0.25',
+                            markersize=4, mew=0.9)
                 ax.set_yscale('log')
                 ax.grid(True, linestyle='--', alpha=0.3)
                 if i == 0:
@@ -1039,7 +1057,7 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
 
     print("\nCrossover land fraction across the grid (steady states only):")
     print(f"  {'Mg/Si':>6} {'crust':>7} {'out':>6}   crossover (by instellation)")
-    for (mg, c, o), (ratio, _) in sorted(cells.items()):
+    for (mg, c, o), (ratio, *_) in sorted(cells.items()):
         s_vals = sorted({s for s, _ in ratio})
         pts = []
         for sv in s_vals:
@@ -1097,7 +1115,7 @@ def plot_alpha_scaling(df, output_path, pr):
             series = _alpha_slice(df, pr, o, a)
             if not series:
                 continue
-            ratio, _ = _ratio_cells(series, pr, output_path)
+            ratio, _, _ = _ratio_cells(series, pr, output_path)
             if not ratio:
                 continue
             for sv in sorted({s for s, _ in ratio}):
@@ -1184,7 +1202,7 @@ def plot_alpha_ratio_grid(df, output_path, pr, step=0.5):
             if series:
                 cells[(a, o)] = _ratio_cells(series, pr, output_path)
 
-    allv = [np.log10(v) for r, _ in cells.values() for v in r.values()]
+    allv = [np.log10(v) for r, *_ in cells.values() for v in r.values()]
     if not allv:
         print("No steady-state alpha runs with both fluxes positive -- skipping.")
         return None
@@ -1200,7 +1218,7 @@ def plot_alpha_ratio_grid(df, output_path, pr, step=0.5):
     for i, rv in enumerate(reversed(ROWS)):          # largest alpha at the top
         for j, cv in enumerate(COLS):
             ax = axes[i, j]
-            ratio, skipped = cells.get((rv, cv), ({}, []))
+            ratio, skipped, sinks = cells.get((rv, cv), ({}, [], []))
             s_vals = sorted({s for s, _ in ratio})
             lands = sorted({l for _, l in ratio})
             if len(s_vals) > 1 and len(lands) > 1:
@@ -1220,6 +1238,9 @@ def plot_alpha_ratio_grid(df, output_path, pr, step=0.5):
                         va='center', fontsize=7, color='0.5', style='italic')
             for sv, land in skipped:
                 ax.plot(sv, land, marker='x', color='0.45', markersize=3, mew=0.8)
+            for sv, land in sinks:
+                ax.plot(sv, land, marker='o', markerfacecolor='none', markeredgecolor='0.25',
+                        markersize=4, mew=0.9)
             ax.set_yscale('log')
             ax.grid(True, linestyle='--', alpha=0.3)
             if i == 0:
