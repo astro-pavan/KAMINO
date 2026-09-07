@@ -1160,6 +1160,85 @@ def plot_alpha_scaling(df, output_path, pr):
     return tab
 
 
+def plot_alpha_ratio_grid(df, output_path, pr, step=0.5):
+    """Ratio map faceted over alpha x outgassing: columns are outgassing, rows are alpha.
+
+    Same conventions as the other ratio maps -- diverging about a ratio of 1 with the neutral
+    midpoint pinned there, land fraction 0 excluded (continental weathering is exactly zero, so
+    the ratio is infinite), steady states only, cells without one left blank and marked.
+
+    ONE colour scale across all nine panels. Per-panel normalisation would make every panel look
+    alike whatever its numbers were, which would hide the whole point: alpha slides the ratio
+    bodily up the land-fraction axis (measured d log f*/d log alpha = 0.78-1.16) while outgassing
+    decides whether a crossover exists at all.
+
+    To transpose the layout, swap ROWS and COLS below.
+    """
+    ROWS, COLS = GRID_ALPHA, GRID_OUTGASSING          # rows: alpha, columns: outgassing
+    row_label, col_label = r'$\alpha$', 'outgassing'
+
+    cells = {}
+    for a in ROWS:
+        for o in COLS:
+            series = _alpha_slice(df, pr, o, a)
+            if series:
+                cells[(a, o)] = _ratio_cells(series, pr, output_path)
+
+    allv = [np.log10(v) for r, _ in cells.values() for v in r.values()]
+    if not allv:
+        print("No steady-state alpha runs with both fluxes positive -- skipping.")
+        return None
+    lo = np.floor(min(allv) / step) * step
+    hi = np.ceil(max(allv) / step) * step
+    bands = np.arange(lo, hi + 0.5 * step, step)
+    norm = pr.mcolors.TwoSlopeNorm(vmin=min(lo, -step), vcenter=0.0, vmax=max(hi, step))
+    cmap = pr.cmr.fusion_r
+
+    fig, axes = pr.plt.subplots(len(ROWS), len(COLS), sharex=True, sharey=True, squeeze=False,
+                                figsize=pr.figure_size('double', height=5.0))
+    cf = None
+    for i, rv in enumerate(reversed(ROWS)):          # largest alpha at the top
+        for j, cv in enumerate(COLS):
+            ax = axes[i, j]
+            ratio, skipped = cells.get((rv, cv), ({}, []))
+            s_vals = sorted({s for s, _ in ratio})
+            lands = sorted({l for _, l in ratio})
+            if len(s_vals) > 1 and len(lands) > 1:
+                Z = np.full((len(lands), len(s_vals)), np.nan)
+                for a_, land in enumerate(lands):
+                    for b_, sv in enumerate(s_vals):
+                        v = ratio.get((sv, land))
+                        if v is not None:
+                            Z[a_, b_] = np.log10(v)
+                Zm = np.ma.masked_invalid(Z)
+                cf = ax.contourf(s_vals, lands, Zm, levels=bands, cmap=cmap, norm=norm,
+                                 extend='both')
+                if np.nanmin(Z) < 0 < np.nanmax(Z):
+                    ax.contour(s_vals, lands, Zm, levels=[0.0], colors='k', linewidths=1.2)
+            else:
+                ax.text(0.5, 0.5, 'no steady state', transform=ax.transAxes, ha='center',
+                        va='center', fontsize=7, color='0.5', style='italic')
+            for sv, land in skipped:
+                ax.plot(sv, land, marker='x', color='0.45', markersize=3, mew=0.8)
+            ax.set_yscale('log')
+            ax.grid(True, linestyle='--', alpha=0.3)
+            if i == 0:
+                ax.set_title(f'{col_label} {cv:g}x', fontsize=8)
+            if j == 0:
+                ax.set_ylabel(f'{row_label} = {rv:g}\nLand fraction', fontsize=7)
+            if i == len(ROWS) - 1:
+                ax.set_xlabel('Instellation (S/S0)')
+
+    if cf is not None:
+        ticks = [t for t in range(-9, 10) if lo <= t <= hi]
+        cbar = fig.colorbar(cf, ax=list(axes.ravel()), pad=0.02, aspect=30, ticks=ticks)
+        cbar.set_label('Seafloor / continental alkalinity flux')
+        cbar.set_ticklabels([('1' if t == 0 else f'$10^{{{t}}}$') for t in ticks])
+        cbar.ax.axhline(0, color='k', linewidth=1.2)
+    pr._save_fig(fig, os.path.join(output_path, 'weathering_ratio_alpha_grid.png'))
+    return cells
+
+
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
     if pe is not None:
@@ -1194,6 +1273,7 @@ def make_plots(output_path=OUTPUT_PATH, pe=None):
     plot_weathering_ratio_map(series, output_path, pr)
     plot_weathering_ratio_grid(df, output_path, pr)
     plot_alpha_scaling(df, output_path, pr)
+    plot_alpha_ratio_grid(df, output_path, pr)
     # plot_results' own continental figures: the four-panel baseline and the ion-ratio chart
     # against modern seawater. They select on this same reference, so they read these runs.
     pr.plot_continental_baseline(df, output_path)
