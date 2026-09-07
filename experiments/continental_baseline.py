@@ -450,6 +450,18 @@ def _report(arms, edges, pr):
         print(f"  continental zone is {(a_hi - a_lo) - (b_hi - b_lo):+.3f} S wide relative to "
               f"the ocean world ({(a_hi - a_lo) / (b_hi - b_lo):.2f}x)")
 
+    # plot_results draws these edges as vertical lines on every other instellation figure, from
+    # its own hardcoded copy. Say so loudly when the two disagree rather than let every figure
+    # in the paper quote a stale zone -- the same reason parameter_sweep._warn_constant_drift
+    # exists for the chemistry constants.
+    if LAND_FRACTION in edges:
+        lo, hi = edges[LAND_FRACTION][:2]
+        for label, here, there in (('CONTINENTAL_HZ_OUTER', lo, pr.CONTINENTAL_HZ_OUTER),
+                                   ('CONTINENTAL_HZ_INNER', hi, pr.CONTINENTAL_HZ_INNER)):
+            if abs(here - there) > 5e-4:
+                print(f"  NOTE plot_results.{label} = {there:g}, but this sweep measures "
+                      f"{here:.3f}. Update it, or the HZ lines on every other figure are stale.")
+
 
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
