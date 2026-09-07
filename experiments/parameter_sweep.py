@@ -13,7 +13,14 @@ from kamino.crust_composition import mineral_composition
 from kamino.constants import M_EARTH, R_EARTH, EARTH_MANTLE_MG_SI, EARTH_DELTA_IW
 from kamino.mineral_info import *
 
-RERUN = False
+# Set KAMINO_RERUN=1 to recompute runs that already have output on disk.
+#
+# Read from the ENVIRONMENT rather than edited in place, because ProcessPoolExecutor spawns
+# workers that re-import this module: a value assigned in the parent process never reaches them.
+# A monkeypatched RERUN would therefore keep silently reusing the very runs it was set to
+# replace, and the sweep would report success having recomputed nothing. The environment is
+# inherited across spawn, so it does propagate.
+RERUN = os.environ.get('KAMINO_RERUN', '0').lower() in ('1', 'true', 'yes')
 MAX_CHEMISTRY_FALLBACKS = 5000
 
 # ── Calibrated constants ──────────────────────────────────────────────────────────────────────
@@ -122,8 +129,11 @@ def _warn_constant_drift():
 # converging. That is a truncation of real physics, which is what these budgets exist to avoid.
 # The headroom is cheap now that tau_prec scales with ocean depth (planet.TAU_PREC_REF): the deep
 # runs that motivated the cap take 3-6x fewer steps than the pilot's did.
-WALL_SECONDS_SHALLOW = 900
-WALL_SECONDS_DEEP = 2700
+# Overridable from the environment for the same reason as RERUN above (spawned workers re-import
+# this module, so only the environment crosses the process boundary). Raising the shallow budget
+# is how a batch of wall_timeout runs gets finished without changing the default for every sweep.
+WALL_SECONDS_SHALLOW = int(os.environ.get('KAMINO_WALL_SHALLOW', 900))
+WALL_SECONDS_DEEP = int(os.environ.get('KAMINO_WALL_DEEP', 2700))
 DEEP_OCEAN_M = 10000
 
 
