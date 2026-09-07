@@ -147,8 +147,11 @@ T_RUNAWAY  = 360.0
 # Instellation limits of the temperate band on the reference Earth-like planet, measured by
 # experiments/continental_baseline.py: land fraction 0.3 with every other axis at Earth --
 # 1x outgassing, 1x crust production, 3 km ocean, Earth crust (Mg/Si 1.25, dIW -2), reverse
-# weathering on, reducing ocean. Drawn as vertical lines so any figure on an instellation axis
-# can be read against the same reference planet.
+# weathering on, reducing ocean. Drawn as vertical lines on TEMPERATURE panels, so any figure of
+# T against instellation can be read against the same reference planet. Temperature only: the
+# edges say where the temperate band is entered and left, which is not a statement about pCO2,
+# pH, salinity or mineral saturation, so marking those panels would imply a threshold in a
+# quantity the edges say nothing about.
 #
 # OUTER is a crossing: T interpolated onto T_SNOWBALL between the S = 0.45 and S = 0.50 runs.
 # It is CO2-SUPPLY limited, not radiation limited. The WHAK continental sink stays near 2x the
@@ -174,19 +177,16 @@ CONTINENTAL_HZ_INNER = 1.125
 SHOW_HZ_EDGES = False
 
 
-def _draw_hz_edges(ax, show_hz=None, axis='x'):
-    """Mark the continental baseline's habitable-zone edges on an instellation axis.
+def _draw_hz_edges(ax, show_hz=None):
+    """Mark the continental baseline's habitable-zone edges on a TEMPERATURE axis.
 
     `show_hz` of None defers to the module default, so a caller that does not care need not
-    thread the flag; True or False decides for this axis alone. `axis` says which way round
-    instellation runs -- 'x' for the line figures, 'y' for the phase diagram, which puts
-    instellation on the vertical.
+    thread the flag; True or False decides for this axis alone.
     """
     if not (SHOW_HZ_EDGES if show_hz is None else show_hz):
         return
-    draw = ax.axvline if axis == 'x' else ax.axhline
     for s in (CONTINENTAL_HZ_OUTER, CONTINENTAL_HZ_INNER):
-        draw(s, color='0.35', linestyle=(0, (6, 3)), linewidth=1.0, alpha=0.85, zorder=1)
+        ax.axvline(s, color='0.35', linestyle=(0, (6, 3)), linewidth=1.0, alpha=0.85, zorder=1)
 
 
 # Legend entry for the above, appended by _make_legend_handles when the lines are drawn.
@@ -774,16 +774,17 @@ def _panel_groups(split):
 def _style_axes(axes, cols, x_lims=(0.25, 1.45), show_hz=None):
     """Style a set of axes given the column names they represent.
 
-    `show_hz` draws the continental baseline's habitable-zone edges on every axis in the stack,
-    not only the temperature panel: they all share the instellation axis, so the same two lines
-    let pCO2, pH and salinity be read inside or outside the temperate band too.
+    `show_hz` draws the continental baseline's habitable-zone edges on the TEMPERATURE panel
+    only. The edges are a statement about temperature -- where the band is entered and left --
+    so putting them on a pCO2 or salinity panel would assert a threshold in a quantity they say
+    nothing about.
     """
     for ax in axes:
         ax.grid(True, linestyle='--', alpha=0.4)
         ax.set_xlim(*x_lims)
-        _draw_hz_edges(ax, show_hz)
     for ax, col in zip(axes, cols):
         if col == 'T':
+            _draw_hz_edges(ax, show_hz)
             ax.set_ylabel('Temperature (K)')
             ax.axhspan(T_SNOWBALL - 25, T_SNOWBALL, color='blue', alpha=0.12)
             ax.axhspan(T_RUNAWAY - 20,  T_RUNAWAY,  color='red',  alpha=0.12)
@@ -824,10 +825,15 @@ def _add_colorbar(fig, ax, cmap, norm, label, ticks=None, ticklabels=None, aspec
     return cbar
 
 
-def _make_legend_handles(show_markers=True, prefix_handles=None, show_hz=None):
-    """Build legend handle list: prefix (default DA_LEGEND) + optional marker entries."""
+def _make_legend_handles(show_markers=True, prefix_handles=None, show_hz=None, cols=None):
+    """Build legend handle list: prefix (default DA_LEGEND) + optional marker entries.
+
+    The HZ entry appears only when `cols` contains a temperature panel, because that is the only
+    panel the edges are drawn on -- a legend describing lines the figure does not have is worse
+    than no legend entry.
+    """
     handles = list(prefix_handles if prefix_handles is not None else DA_LEGEND)
-    if (SHOW_HZ_EDGES if show_hz is None else show_hz):
+    if (SHOW_HZ_EDGES if show_hz is None else show_hz) and 'T' in (cols or ()):
         handles.append(_hz_legend_handle())
     if show_markers:
         handles += [plt.scatter([], [], marker=m, s=28, color='k', label=TERM_LABELS[t])
@@ -1076,7 +1082,8 @@ def _faceted_lines(subset, col, values, colours, cmap, norm, cbar_label, stem, o
                       ticklabels=ticklabels,
                       **({} if aspect_per_row is None else {'aspect': n_rows * aspect_per_row}))
         _add_figure_legend(fig, axes,
-                           _make_legend_handles(show_markers=show_markers, show_hz=show_hz))
+                           _make_legend_handles(show_markers=show_markers, show_hz=show_hz,
+                                                cols=cols))
         _save_fig(fig, os.path.join(output_path, f'{stem}{sfx}.png'))
 
 
@@ -1175,7 +1182,7 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 _add_colorbar(fig, list(axes), cmap, norm, 'Earth Outgassing',
                               ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                               aspect=n_rows * 7.5) # type: ignore
-                _h = _make_legend_handles(show_hz=show_hz)
+                _h = _make_legend_handles(show_hz=show_hz, cols=cols)
                 fig.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig.suptitle(f'Crust production = {c}× Earth{mg_title}')
                 _save_fig(fig, os.path.join(output_path,
@@ -1198,7 +1205,7 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
             _style_combined_col(axes_c, ci, n_cols, title=f'{c}×', cols=cols,
                                 show_hz=show_hz)
 
-        _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz)
+        _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz, cols=cols)
         fig_c.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
         _add_colorbar(fig_c, list(axes_c.ravel()), cmap, norm, 'Earth Outgassing',
                       ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
@@ -1235,7 +1242,7 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 _add_colorbar(fig_s, list(axes_s.ravel()), cmap, norm, 'Earth Outgassing',
                               ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                               aspect=n_rows * 10)
-                _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz)
+                _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz, cols=cols)
                 fig_s.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig_s.suptitle(f'Earth crust production rate{mg_title}')
                 _save_fig(fig_s, os.path.join(output_path, seq_fname + '.png'))
@@ -1305,7 +1312,7 @@ def plot_mgsi_basic_grid(df, output_path, split_panels=True, show_markers=False,
                       ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                       aspect=n_rows * 10)
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
-                                                      show_hz=show_hz))
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle(f'Mantle Mg/Si   (crust production = {crust_production:g}× Earth)')
         _save_fig(fig, os.path.join(output_path, f'lines_mgsi_basic{sfx}.png'))
 
@@ -1644,7 +1651,7 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
                       ticks=mg_vals, ticklabels=[f'{v:g}' for v in mg_vals],
                       aspect=n_rows * 10)
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
-                                                      show_hz=show_hz))
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle(r'Core-formation $\Delta$IW')
         _save_fig(fig, os.path.join(output_path, f'lines_composition_grid{tag}{sfx}.png'))
 
@@ -1676,7 +1683,7 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
                       ticks=diw_all, ticklabels=[f'{v:+g}' for v in diw_all],
                       aspect=n_rows * 10)
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
-                                                      show_hz=show_hz))
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle('Mantle Mg/Si')
         _save_fig(fig, os.path.join(output_path, f'lines_composition_grid_T{tag}{sfx}.png'))
 
@@ -1914,7 +1921,7 @@ _MINERAL_LABELS = {
 }
 
 
-def plot_damkohler_contour(df, output_path, out_targets=(0.1, 1.0, 10.0), show_hz=None):
+def plot_damkohler_contour(df, output_path, out_targets=(0.1, 1.0, 10.0)):
     """2D contourf of Damköhler number in (instellation × crust production) space.
 
     One panel per outgassing rate (vertically stacked), coloured by log10(Da).
@@ -1975,7 +1982,6 @@ def plot_damkohler_contour(df, output_path, out_targets=(0.1, 1.0, 10.0), show_h
                 ax.contour(s_arr, log_crust, Z, levels=[0.0],
                            colors='k', linewidths=1.5)
 
-            _draw_hz_edges(ax, show_hz)
             ax.set_title(f'Outgassing = {out:g}×', fontsize=9)
             ax.set_yticks(log_crust)
             ax.set_yticklabels([f'{v:g}' for v in crust_vals], fontsize=7)
@@ -2165,7 +2171,7 @@ def _get_mineral_si(d):
         return nan_result
 
 
-def plot_mineral_si(df, output_path, show_hz=None):
+def plot_mineral_si(df, output_path):
     """SI of all precipitating minerals vs instellation, split into pore-space and ocean columns.
 
     One figure per crust production rate, lines coloured by outgassing rate.
@@ -2245,7 +2251,6 @@ def plot_mineral_si(df, output_path, show_hz=None):
                 ax.axhline(0, color='k', linewidth=0.6, linestyle='--', alpha=0.5)
                 ax.set_xlim(0.25, 1.45)
                 ax.grid(True, linestyle='--', alpha=0.4)
-                _draw_hz_edges(ax, show_hz)
                 if mineral in min_set:
                     ax.set_ylabel('SI')
                     ax.set_title(f'{label} — {col_title}', fontsize=7, pad=2)
@@ -2262,7 +2267,7 @@ def plot_mineral_si(df, output_path, show_hz=None):
         fig.suptitle(f'Mineral saturation indices — Crust = {c}× Earth')
         _save_fig(fig, os.path.join(output_path, f'mineral_si_crust_{c}.png'))
 
-def plot_habitability_phase_space(df, output_path, show_hz=None):
+def plot_habitability_phase_space(df, output_path):
     """
     Phase diagram mapping Instellation vs. Outgassing/Crust production ratio.
     Aggregates overlapping data points to determine the dominant macro-state
@@ -2372,8 +2377,6 @@ def plot_habitability_phase_space(df, output_path, show_hz=None):
 
     ax.set_xlabel('Outgassing / Crust production rate')
     ax.set_ylabel('Instellation (S/S₀)')
-    # Instellation is the VERTICAL axis here, so the baseline's edges are horizontal lines.
-    _draw_hz_edges(ax, show_hz, axis='y')
     ax.grid(True, linestyle='--', alpha=0.4, zorder=0)
 
     # Add the legend below the plot
