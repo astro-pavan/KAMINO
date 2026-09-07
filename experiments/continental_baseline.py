@@ -925,6 +925,28 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
     Same conventions as the single map: diverging about a ratio of 1, land fraction 0 excluded
     (continental weathering is exactly zero there, so the ratio is infinite), steady states only,
     and cells without one left blank and marked.
+
+    READ THE Mg/Si AND CRUST-PRODUCTION AXES WITH CARE. Both feed the SEAFLOOR side only:
+    `mantle_mg_si` reaches the model through `Planet.crust_composition`, and
+    `crust_production_rate` through `J_total`, and neither is an argument to
+    `get_continental_weathering_flux`, which sees only T and pCO2 against a `F_alk_ref` pinned to
+    modern Earth and a cation split fixed to modern river chemistry. So continental weathering
+    cannot respond to crust chemistry or tectonic rate except through the shared climate.
+
+    That is not a small correction. Measured at land 0.003, S = 0.8, going Mg/Si 1.25 -> 1.8:
+    the seafloor flux rises only 1.3-1.8x while the continental flux FALLS to 0.48-0.68x, because
+    the stronger seafloor sink draws pCO2 down (1.45 -> 0.76 bar) and cools the planet
+    (330.5 -> 321.6 K), weakening WHAK. In 4 of 5 cells the climate-mediated continental change
+    is the larger of the two. The Mg/Si signal here is therefore mostly an indirect response of a
+    composition-blind continental law; a continental crust that tracked mantle Mg/Si would weather
+    faster too and cancel part of it, so treat the shift as an UPPER BOUND.
+
+    The crust-production axis is likewise one-sided. On a real planet tectonic vigour also drives
+    orogeny and uplift, hence physical erosion and the supply of fresh silicate to continental
+    weathering -- the supply-limited regime of West et al. (2005) and Maher & Chamberlain (2014).
+    The seafloor law here carries transport/supply limitation (sedimentation, Damkohler number)
+    but the continental law is pure kinetic WHAK with no runoff and no supply term, so that
+    coupling has no route into the model at all.
     """
     mg_vals = [m for m in GRID_MG_SI if np.isclose(df['mg_si'], m).any()]
     if not mg_vals:
