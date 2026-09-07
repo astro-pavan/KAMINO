@@ -31,6 +31,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 os.environ.setdefault('JAX_PLATFORMS', 'cpu')
 
 import numpy as np
+import pandas as pd
 
 import parameter_sweep as ps
 from parameter_sweep import (ALPHA_CALIB, KD_MG_CALIB, K_NA_CALIB, OUTPUT_PATH, WORKERS,
@@ -99,11 +100,27 @@ GRID_CRUST = [0.1, 1, 10]
 # to 1.0 with no mass-balance warning, Akermanite taking 11 wt%. State that if these are published.
 GRID_MG_SI = [MG_SI_EARTH, 1.8]
 
+# The reactive-area scaling in the seafloor weathering law. This is the axis worth resolving:
+# in the kinetic limit the seafloor flux is LINEAR in alpha and continental weathering does not
+# see alpha at all, so f* (the crossover land fraction) should go as alpha^1. Habitable planets
+# are measured to be kinetic (median Da 0.007 over the steady states on disk), so that linearity
+# should hold across the habitable population rather than only in a corner of it.
+#
+# It matters because alpha is NOT identifiable from Earth (development history 28.2) and spans
+# 1.1-50 here -- a 45x range on a quantity nothing observable pins down. If f* really is linear
+# in alpha then alpha, a model parameter, is a larger control on the crossover than any planetary
+# property in the grid, which is worth knowing explicitly rather than by inference.
+#
+# Same three values as parameter_sweep.alpha, so these runs sit in the same family as the
+# land-free alpha arm; all three stay in the kinetic limit (Da <= 0.13).
+GRID_ALPHA = [ALPHA_CALIB, 10, 50]
+
 # Which sweep __main__ runs -- edit this rather than passing a flag.
 #   'baseline' : the two-arm instellation line (land 0.3 and 0), Earth on every other axis
 #   'land'     : the land-fraction series at Earth outgassing and crust production
 #   'grid'     : the coarse instellation x land x outgassing x crust x Mg/Si factorial
-SWEEP = 'grid'
+#   'alpha'    : instellation x land x outgassing x alpha, at Earth crust production and Mg/Si
+SWEEP = 'alpha'
 
 # These are ints on purpose. `_run_name` interpolates them with plain str(), so 1 and 1.0 give
 # 'crust_1' and 'crust_1.0' -- two names for one config, and the ocean arm would stop matching
@@ -153,7 +170,7 @@ def _combos(instellation=None, land_arms=None, pe_states=None):
 
 
 def _grid_combos(instellation=None, lands=None, outgassing=None, crust=None,
-                 mg_si=None, pe_states=None):
+                 mg_si=None, alpha=None, pe_states=None):
     """Combos for the coarse factorial: instellation x land x outgassing x crust x Mg/Si.
 
     Same argument order and cost ordering as `_combos`; only the axes differ. The land-free
@@ -162,13 +179,14 @@ def _grid_combos(instellation=None, lands=None, outgassing=None, crust=None,
     """
     combos = [
         (s, o, c, OCEAN_DEPTH, REVERSE_WEATHERING, mg, DELTA_IW,
-         ALPHA_CALIB, KD_MG_CALIB, K_NA_CALIB, pe, land)
-        for s, land, o, c, mg, pe in itertools.product(
+         a, KD_MG_CALIB, K_NA_CALIB, pe, land)
+        for s, land, o, c, mg, a, pe in itertools.product(
             instellation or COARSE_INSTELLATION,
             lands or COARSE_LAND_FRACTIONS,
             outgassing or GRID_OUTGASSING,
             crust or GRID_CRUST,
             mg_si or GRID_MG_SI,
+            alpha or [ALPHA_CALIB],
             pe_states or PE_STATES)
     ]
     combos.sort(key=lambda x: (ps._cost_rank(x), x[11] == 0.0))
@@ -209,7 +227,8 @@ def run(combos, output_path=OUTPUT_PATH):
     print(f"  mantle Mg/Si:   {_axis(5)}")
     print(f"  ocean depth:    {_axis(3)} m      dIW: {_axis(6)}")
     print(f"  pe: {[f'{v:g} ({_pe_label(v)})' for v in sorted({c[10] for c in combos})]}")
-    print(f"  alpha={ALPHA_CALIB:g}  kd_mg_ht={KD_MG_CALIB:g}  k_na={K_NA_CALIB:g}")
+    print(f"  alpha:          {_axis(7)}")
+    print(f"  kd_mg_ht={KD_MG_CALIB:g}  k_na={K_NA_CALIB:g}")
     ps._warn_constant_drift()
 
     completed = aborted = 0
@@ -1034,6 +1053,113 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
     return cells
 
 
+def _alpha_slice(df, pr, outgassing, alpha, crust=None, mg_si=None):
+    """{land_fraction: rows} for one (outgassing, alpha) cell.
+
+    Deliberately does NOT use pr._ref_chem: that helper pins alpha to the most-run value, which
+    would silently discard the alpha = 10 and 50 arms and leave a "sweep" of one point. kd_mg and
+    k_na are still pinned, explicitly, to the calibrated values.
+    """
+    crust = CRUST_PRODUCTION if crust is None else crust
+    mg_si = MG_SI_EARTH if mg_si is None else mg_si
+    sub = df[
+        df['instellation'].isin(COARSE_INSTELLATION) &
+        df['land_fraction'].apply(
+            lambda v: any(np.isclose(v, l) for l in COARSE_LAND_FRACTIONS)) &
+        pr._ref_redox(df) &
+        df['reverse_weathering'] &
+        (df['ocean_depth'] == OCEAN_DEPTH) &
+        (df['outgassing'] == outgassing) &
+        (df['crust_production'] == crust) &
+        (df['f_HT'] == 0.0) &
+        np.isclose(df['mg_si'], mg_si) &
+        np.isclose(df['delta_iw'], DELTA_IW) &
+        np.isclose(df['alpha'], alpha) &
+        np.isclose(df['kd_mg'], KD_MG_CALIB) &
+        np.isclose(df['k_na'], K_NA_CALIB)
+    ]
+    return {float(l): sub[np.isclose(sub['land_fraction'], l)].sort_values('instellation')
+            for l in sorted(sub['land_fraction'].unique())}
+
+
+def plot_alpha_scaling(df, output_path, pr):
+    """Does the crossover land fraction really go as alpha^1?
+
+    In the kinetic limit the seafloor flux is linear in alpha while continental weathering does
+    not see alpha at all, so f* should scale as alpha^1. The climate feedback should DAMP that:
+    raising alpha strengthens the sink, which cools the planet and draws CO2 down, weakening both
+    fluxes again. An exponent below 1 is therefore the expected outcome, and its size is the
+    result -- it says how much of alpha's nominal leverage survives the feedback.
+    """
+    rows = []
+    for o in GRID_OUTGASSING:
+        for a in GRID_ALPHA:
+            series = _alpha_slice(df, pr, o, a)
+            if not series:
+                continue
+            ratio, _ = _ratio_cells(series, pr, output_path)
+            if not ratio:
+                continue
+            for sv in sorted({s for s, _ in ratio}):
+                lands = sorted({l for (s2, l) in ratio if s2 == sv})
+                got = _crossover_land_fraction(lands, [ratio[(sv, l)] for l in lands])
+                if got is not None:
+                    rows.append({'outgassing': o, 'alpha': a, 'instellation': sv, 'f_star': got})
+    if not rows:
+        print("No crossovers found across the alpha grid -- skipping.")
+        return None
+    tab = pd.DataFrame(rows)
+
+    fig, ax = pr.plt.subplots(1, 1, figsize=pr.figure_size('single', height=3.0))
+    cmap = pr.cmr.tropical
+    norm = pr.mcolors.LogNorm(vmin=min(GRID_OUTGASSING), vmax=max(GRID_OUTGASSING))
+
+    print("\nCrossover land fraction f* against alpha (geometric mean over instellation):")
+    print(f"  {'outgassing':>10} " + ' '.join(f'{a:>10.4g}' for a in GRID_ALPHA)
+          + f" {'exponent':>9}")
+    exponents, anchor = {}, None
+    for o in GRID_OUTGASSING:
+        g = tab[tab.outgassing == o]
+        if g.empty:
+            continue
+        # Geometric mean over instellation: f* spans decades, so an arithmetic mean would be
+        # dominated by whichever instellation sits nearest the runaway.
+        means = {a: float(np.exp(np.log(g[g.alpha == a].f_star).mean()))
+                 for a in GRID_ALPHA if (g.alpha == a).any()}
+        cells = [(f'{means[a]:10.4g}' if a in means else f'{"--":>10}') for a in GRID_ALPHA]
+        slope = float('nan')
+        if len(means) >= 2:
+            slope = float(np.polyfit(np.log10(list(means)),
+                                     np.log10(list(means.values())), 1)[0])
+            exponents[o] = slope
+        print(f"  {o:10g} " + ' '.join(cells) + f" {slope:9.2f}")
+        ax.plot(list(means), list(means.values()), marker='o', markersize=4,
+                color=cmap(norm(o)), linewidth=1.6, label=f'{o:g}x')
+        if anchor is None and means:
+            anchor = (min(means), means[min(means)])
+
+    if anchor is not None:
+        a0, f0 = anchor
+        xs = np.array(GRID_ALPHA, dtype=float)
+        ax.plot(xs, f0 * xs / a0, color='0.4', linestyle=(0, (6, 3)), linewidth=1.2,
+                label=r'$\propto \alpha$')
+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel(r'Reactive area scaling $\alpha$')
+    ax.set_ylabel(r'Crossover land fraction $f^*$')
+    ax.grid(True, linestyle='--', alpha=0.4)
+    ax.legend(fontsize=7, frameon=False, title='Outgassing', title_fontsize=7)
+    pr._save_fig(fig, os.path.join(output_path, 'alpha_scaling.png'))
+
+    if exponents:
+        v = list(exponents.values())
+        print(f"  exponent d log f* / d log alpha: {min(v):.2f} to {max(v):.2f} "
+              f"(alpha^1 would be 1.00)")
+    tab.to_csv(os.path.join(output_path, 'alpha_crossover.csv'), index=False)
+    return tab
+
+
 def make_plots(output_path=OUTPUT_PATH, pe=None):
     pr = _plot_results()
     if pe is not None:
@@ -1067,6 +1193,7 @@ def make_plots(output_path=OUTPUT_PATH, pe=None):
     plot_weathering_crossover(series, output_path, pr)
     plot_weathering_ratio_map(series, output_path, pr)
     plot_weathering_ratio_grid(df, output_path, pr)
+    plot_alpha_scaling(df, output_path, pr)
     # plot_results' own continental figures: the four-panel baseline and the ion-ratio chart
     # against modern seawater. They select on this same reference, so they read these runs.
     pr.plot_continental_baseline(df, output_path)
@@ -1092,6 +1219,12 @@ if __name__ == '__main__':
         pe_states = [PE_REDUCING, PE_OXIDISING] if args.both_redox else PE_STATES
         if SWEEP == 'grid':
             combos = _grid_combos(pe_states=pe_states)
+        elif SWEEP == 'alpha':
+            # Crust production and Mg/Si pinned to Earth: the grid sweep already showed crust
+            # production is a secondary control and composition a minor one, and holding them
+            # fixed keeps this factorial to a size worth running.
+            combos = _grid_combos(crust=[CRUST_PRODUCTION], mg_si=[MG_SI_EARTH],
+                                  alpha=GRID_ALPHA, pe_states=pe_states)
         elif SWEEP == 'land':
             combos = _combos(land_arms=LAND_FRACTIONS, pe_states=pe_states)
         elif SWEEP == 'baseline':
