@@ -522,7 +522,7 @@ def plot_baseline_vs_ocean(arms, output_path, pr):
             ax.scatter(EARTH['S'], EARTH[col], marker='*', s=180, color='gold',
                        edgecolors='k', linewidths=0.7, zorder=6)
         pr._add_figure_legend(fig, axes, handles)
-        pr._save_fig(fig, os.path.join(output_path, f'continental_vs_ocean{sfx}.png'))
+        pr._save_fig(fig, pr.figure_path(output_path, f'continental_vs_ocean{sfx}.png'))
 
 
 def plot_habitable_zone(arms, output_path, pr):
@@ -590,7 +590,7 @@ def plot_habitable_zone(arms, output_path, pr):
         handles.append(pr.Line2D([0], [0], color='k', linestyle='none', marker='>', markersize=5,
                                  label='Edge is a bound (sweep limit)'))
     pr._add_figure_legend(fig, [ax, ax_z], handles)
-    pr._save_fig(fig, os.path.join(output_path, 'continental_habitable_zone.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, 'continental_habitable_zone.png'))
     return edges
 
 
@@ -685,7 +685,7 @@ def plot_land_fraction_series(series, output_path, pr):
                                      label='Land free (0)'))
         handles += list(pr.DA_LEGEND)
         pr._add_figure_legend(fig, axes, handles)
-        pr._save_fig(fig, os.path.join(output_path, f'land_fraction_series{sfx}.png'))
+        pr._save_fig(fig, pr.figure_path(output_path, f'land_fraction_series{sfx}.png'))
 
 
 def plot_weathering_crossover(series, output_path, pr):
@@ -760,7 +760,7 @@ def plot_weathering_crossover(series, output_path, pr):
     ax_c.set_xlabel('Instellation (S/S₀)')
     ax_c.set_ylabel('Crossover land fraction')
     ax_c.grid(True, linestyle='--', alpha=0.4)
-    pr._save_fig(fig, os.path.join(output_path, 'weathering_crossover.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, 'weathering_crossover.png'))
 
     print("\nContinental vs seafloor alkalinity flux (Tmol eq/yr), steady states only:")
     print(f"  {'land':>8} " + ' '.join(f'{s:>9.2f}' for s in s_vals))
@@ -871,7 +871,7 @@ def plot_weathering_ratio_map(series, output_path, pr, levels=13):
     if np.nanmin(Z) < 0 < np.nanmax(Z):
         cbar.ax.axhline(0, color='k', linewidth=1.2)
 
-    pr._save_fig(fig, os.path.join(output_path, 'weathering_ratio_map.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, 'weathering_ratio_map.png'))
 
     print("\nSeafloor / continental alkalinity flux (steady states only):")
     print(f"  {'land':>8} " + ' '.join(f'{s:>8.2f}' for s in s_vals))
@@ -1053,7 +1053,7 @@ def plot_weathering_ratio_grid(df, output_path, pr, step=0.5):
             cbar.set_ticklabels([('1' if t == 0 else f'$10^{{{t}}}$') for t in ticks])
             cbar.ax.axhline(0, color='k', linewidth=1.2)
         fig.suptitle(f'Mantle Mg/Si = {mg:g}', fontsize=9)
-        pr._save_fig(fig, os.path.join(output_path, f'weathering_ratio_grid_mgsi{mg:g}.png'))
+        pr._save_fig(fig, pr.figure_path(output_path, f'weathering_ratio_grid_mgsi{mg:g}.png'))
 
     print("\nCrossover land fraction across the grid (steady states only):")
     print(f"  {'Mg/Si':>6} {'crust':>7} {'out':>6}   crossover (by instellation)")
@@ -1168,7 +1168,7 @@ def plot_alpha_scaling(df, output_path, pr):
     ax.set_ylabel(r'Crossover land fraction $f^*$')
     ax.grid(True, linestyle='--', alpha=0.4)
     ax.legend(fontsize=7, frameon=False, title='Outgassing', title_fontsize=7)
-    pr._save_fig(fig, os.path.join(output_path, 'alpha_scaling.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, 'alpha_scaling.png'))
 
     if exponents:
         v = list(exponents.values())
@@ -1256,7 +1256,7 @@ def plot_alpha_ratio_grid(df, output_path, pr, step=0.5):
         cbar.set_label('Seafloor / continental alkalinity flux')
         cbar.set_ticklabels([('1' if t == 0 else f'$10^{{{t}}}$') for t in ticks])
         cbar.ax.axhline(0, color='k', linewidth=1.2)
-    pr._save_fig(fig, os.path.join(output_path, 'weathering_ratio_alpha_grid.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, 'weathering_ratio_alpha_grid.png'))
     return cells
 
 

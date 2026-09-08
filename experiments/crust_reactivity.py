@@ -211,7 +211,7 @@ def plot_reactivity_map(tab, output_path, normalise=True, step=0.05):
     cbar.set_ticklabels([f'{v:g}' for v in shown])
     cbar.ax.axhline(centre, color='k', linewidth=1.2)
     stem = 'crust_reactivity_ratio' + ('' if normalise else '_absolute')
-    pr._save_fig(fig, os.path.join(output_path, f'{stem}.png'))
+    pr._save_fig(fig, pr.figure_path(output_path, f'{stem}.png'))
 
 
 if __name__ == '__main__':

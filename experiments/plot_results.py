@@ -873,6 +873,20 @@ def _add_figure_legend(fig, axes, handles, loc='outside lower center', **kw):
     return leg
 
 
+FIGURE_SUBDIR = 'figures'
+
+
+def figure_path(output_path, name):
+    """Path for a figure: the `figures/` subdirectory of the sweep directory, made on demand.
+
+    Keeps the sweep directory to run JSON and the diagnostics cache -- a full plot run drops ~70
+    files, which previously buried the runs they were made from.
+    """
+    directory = os.path.join(output_path, FIGURE_SUBDIR)
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, name)
+
+
 def _save_fig(fig, path, tight=False):
     r"""Write a figure at EXACTLY the size it was created with.
 
@@ -1084,7 +1098,7 @@ def _faceted_lines(subset, col, values, colours, cmap, norm, cbar_label, stem, o
         _add_figure_legend(fig, axes,
                            _make_legend_handles(show_markers=show_markers, show_hz=show_hz,
                                                 cols=cols))
-        _save_fig(fig, os.path.join(output_path, f'{stem}{sfx}.png'))
+        _save_fig(fig, figure_path(output_path, f'{stem}{sfx}.png'))
 
 
 def _plot_group_on_axes(axes, group, color, linestyle='-', show_markers=True, cols=None):
@@ -1185,7 +1199,7 @@ def plot_basic(df, output_path, all_results=True, multiple_plots=False,
                 _h = _make_legend_handles(show_hz=show_hz, cols=cols)
                 fig.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig.suptitle(f'Crust production = {c}× Earth{mg_title}')
-                _save_fig(fig, os.path.join(output_path,
+                _save_fig(fig, figure_path(output_path,
                                             f'sweep_basic_crust{c}{mg_tag}{sfx}.png'))
 
         # Combined plot: crust rates as columns
@@ -1212,7 +1226,7 @@ def plot_basic(df, output_path, all_results=True, multiple_plots=False,
                       aspect=n_rows * 10)
         fig_c.suptitle(f'Earth crust production rate{mg_title}')
         fname = f'sweep_basic{"_full" if all_results else ""}{mg_tag}{sfx}.png'
-        _save_fig(fig_c, os.path.join(output_path, fname), tight=all_results)
+        _save_fig(fig_c, figure_path(output_path, fname), tight=all_results)
 
         if sequence:
             ref_crust, ref_out = 1.0, 1.0
@@ -1245,7 +1259,7 @@ def plot_basic(df, output_path, all_results=True, multiple_plots=False,
                 _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz, cols=cols)
                 fig_s.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig_s.suptitle(f'Earth crust production rate{mg_title}')
-                _save_fig(fig_s, os.path.join(output_path, seq_fname + '.png'))
+                _save_fig(fig_s, figure_path(output_path, seq_fname + '.png'))
 
 
 def plot_basic_mgsi_grid(df, output_path, split_panels=True, show_markers=False,
@@ -1314,7 +1328,7 @@ def plot_basic_mgsi_grid(df, output_path, split_panels=True, show_markers=False,
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle(f'Mantle Mg/Si   (crust production = {crust_production:g}× Earth)')
-        _save_fig(fig, os.path.join(output_path, f'sweep_basic_mgsi_grid{sfx}.png'))
+        _save_fig(fig, figure_path(output_path, f'sweep_basic_mgsi_grid{sfx}.png'))
 
 
 def plot_depth(df, output_path, show_markers=False, split_panels=True,
@@ -1656,7 +1670,7 @@ def plot_composition(df, output_path, split_panels=True, show_markers=False,
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle(r'Core-formation $\Delta$IW')
-        _save_fig(fig, os.path.join(output_path, f'sweep_composition{tag}{sfx}.png'))
+        _save_fig(fig, figure_path(output_path, f'sweep_composition{tag}{sfx}.png'))
 
     # The transpose: Mg/Si as columns, dIW as colour. Same data, and it is the better
     # arrangement when the dIW effect is the one being read off.
@@ -1688,7 +1702,7 @@ def plot_composition(df, output_path, split_panels=True, show_markers=False,
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle('Mantle Mg/Si')
-        _save_fig(fig, os.path.join(output_path, f'sweep_composition_T{tag}{sfx}.png'))
+        _save_fig(fig, figure_path(output_path, f'sweep_composition_T{tag}{sfx}.png'))
 
 
 def plot_composition_map(df, output_path, s_vals=(0.7, 0.9, 1.0, 1.1), ocean_depth=3000,
@@ -1825,7 +1839,7 @@ def plot_composition_map(df, output_path, s_vals=(0.7, 0.9, 1.0, 1.1), ocean_dep
         handles.append(Line2D([0], [0], marker='o', mfc='none', mec='k', linestyle='none',
                               markersize=8, label='Earth reference crust'))
     fig.legend(handles=handles, loc='outside lower center', ncol=len(handles))
-    _save_fig(fig, os.path.join(output_path,
+    _save_fig(fig, figure_path(output_path,
                                 f'sweep_composition_map_{quantity}{"" if relative else "_abs"}.png'))
 
 
@@ -1895,7 +1909,7 @@ def plot_ratio_scatter(df, output_path, s_vals=(0.4, 0.6, 0.8, 1.0, 1.2)):
         for t, m in FAILED_MARKERS.items()
     ]
     fig.legend(handles=marker_handles, loc='outside lower center', ncol=_legend_ncol(marker_handles, 2))
-    _save_fig(fig, os.path.join(output_path, 'ratio_scatter.png'))
+    _save_fig(fig, figure_path(output_path, 'ratio_scatter.png'))
 
 
 # ---------------------------------------------------------------------------
@@ -2004,7 +2018,7 @@ def plot_damkohler_contour(df, output_path, out_targets=(0.1, 1.0, 10.0)):
         cbar.ax.axhline(0, color='k', linewidth=1.5)
 
         # fig.suptitle('Damköhler number — basalt_49, rw=True, depth = 3000 m', fontsize=10)
-        _save_fig(fig, os.path.join(output_path, 'da_contour.png'))
+        _save_fig(fig, figure_path(output_path, 'da_contour.png'))
 
 
 def plot_continental_baseline(df, output_path, show_hz=None):
@@ -2099,7 +2113,7 @@ def plot_continental_baseline(df, output_path, show_hz=None):
                 'Earth', xy=(EARTH_S, EARTH_T), xytext=(EARTH_S + 0.06, EARTH_T - 6),
                 fontsize=8, arrowprops=dict(arrowstyle='-', color='k', lw=0.8),
             )
-        _save_fig(fig, os.path.join(output_path, f'continental_baseline{sfx}.png'))
+        _save_fig(fig, figure_path(output_path, f'continental_baseline{sfx}.png'))
 
     # --- figure 2: ion ratio bar chart (model vs Earth seawater at S ≈ 1) ---
     figsize2 = figure_size('single', height=2.25)
@@ -2131,7 +2145,7 @@ def plot_continental_baseline(df, output_path, show_hz=None):
     ax_ions.set_ylabel('Model Difference (%)')
     # ax_ions.set_yscale('symlog', linthresh=0.1)
     ax_ions.grid(True, linestyle='--', alpha=0.4, axis='y')
-    _save_fig(fig2, os.path.join(output_path, 'continental_baseline_ions.png'))
+    _save_fig(fig2, figure_path(output_path, 'continental_baseline_ions.png'))
 
 
 def _get_mineral_si(d):
@@ -2268,7 +2282,7 @@ def plot_mineral_si(df, output_path):
                       aspect=n_min * 8)
         fig.legend(handles=DA_LEGEND, loc='outside lower center', ncol=_legend_ncol(DA_LEGEND, 3))
         fig.suptitle(f'Mineral saturation indices — Crust = {c}× Earth')
-        _save_fig(fig, os.path.join(output_path, f'mineral_si_crust_{c}.png'))
+        _save_fig(fig, figure_path(output_path, f'mineral_si_crust_{c}.png'))
 
 def plot_habitability_phase_space(df, output_path):
     """
@@ -2385,7 +2399,7 @@ def plot_habitability_phase_space(df, output_path):
     # Add the legend below the plot
     fig.legend(handles=legend_handles, loc='outside lower center', ncol=2)
 
-    _save_fig(fig, os.path.join(output_path, 'ratio_phase_space.png'))
+    _save_fig(fig, figure_path(output_path, 'ratio_phase_space.png'))
 
 
 if __name__ == '__main__':
