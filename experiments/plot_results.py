@@ -213,7 +213,7 @@ REF_DIW   = float(EARTH_DELTA_IW)
 
 # Reference ocean redox: the model's own default (abiotic, reducing -- see planet.PE_DEFAULT and
 # development_history.md section 28). Every sweep since 2026-08-27 runs both redox arms
-# (parameter_sweep.PE_STATES), so this is what every figure EXCEPT plot_redox_effect pins pe to,
+# (parameter_sweep.PE_STATES), so this is what every figure EXCEPT plot_pe pins pe to,
 # exactly as REF_MG_SI/REF_DIW pin the composition axes for every figure except the crust ones.
 # Overridable from the CLI (--pe), the same way the CHEM_KNOBS are.
 REF_PE = float(PE_DEFAULT)
@@ -660,7 +660,7 @@ def _ref_redox(df):
     Every sweep since 2026-08-27 runs both redox arms (parameter_sweep.PE_STATES), doubling
     every combination of the other axes. Without this, every line-based figure would silently
     draw one point per instellation for the oxidising arm and one for the reducing arm and join
-    them as if they were a single trajectory. pe gets its own figure (plot_redox_effect), which
+    them as if they were a single trajectory. pe gets its own figure (plot_pe), which
     is the one caller that must NOT apply this mask.
     """
     return np.isclose(df['pe'], REF_PE)
@@ -696,7 +696,7 @@ def _chem_reference(df, col):
 def _ref_chem(df):
     """Mask pinning each chemistry constant to a single value.
 
-    Everything except plot_chemistry_constants shows ONE chemistry. Without this, runs that
+    Everything except plot_chemistry shows ONE chemistry. Without this, runs that
     differ only in alpha/kd_mg/k_na fall into the same (instellation, outgassing, crust) group
     and get drawn as a single line through several different models.
     """
@@ -1139,10 +1139,10 @@ def _plot_group_on_axes(axes, group, color, linestyle='-', show_markers=True, co
 # Plotting functions
 # ---------------------------------------------------------------------------
 
-def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
+def plot_basic(df, output_path, all_results=True, multiple_plots=False,
                        split_panels=True, sequence=False, width='double', height=None,
                        mg_si=None, show_hz=None):
-    """T, P_CO2, pH, salinity vs instellation per crust rate, coloured by outgassing.
+    """The basic sweep: T, P_CO2, pH, salinity vs instellation per crust rate, coloured by outgassing.
 
     `mg_si` draws the same plane at a non-reference mantle Mg/Si; the value is tagged into every
     filename so the end-member figures cannot overwrite the reference ones.
@@ -1186,7 +1186,7 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 fig.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig.suptitle(f'Crust production = {c}× Earth{mg_title}')
                 _save_fig(fig, os.path.join(output_path,
-                                            f'lines_crust_{c}{mg_tag}{sfx}.png'))
+                                            f'sweep_basic_crust{c}{mg_tag}{sfx}.png'))
 
         # Combined plot: crust rates as columns
         n_cols = len(crust_rates)
@@ -1211,15 +1211,15 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                       ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                       aspect=n_rows * 10)
         fig_c.suptitle(f'Earth crust production rate{mg_title}')
-        fname = f'lines_combined{"_full" if all_results else ""}{mg_tag}{sfx}.png'
+        fname = f'sweep_basic{"_full" if all_results else ""}{mg_tag}{sfx}.png'
         _save_fig(fig_c, os.path.join(output_path, fname), tight=all_results)
 
         if sequence:
             ref_crust, ref_out = 1.0, 1.0
             seq_scenarios = [
-                ('single',      f'lines_seq_1{mg_tag}{sfx}'),
-                ('out_sweep',   f'lines_seq_2{mg_tag}{sfx}'),
-                ('crust_sweep', f'lines_seq_3{mg_tag}{sfx}'),
+                ('single',      f'sweep_basic_seq1{mg_tag}{sfx}'),
+                ('out_sweep',   f'sweep_basic_seq2{mg_tag}{sfx}'),
+                ('crust_sweep', f'sweep_basic_seq3{mg_tag}{sfx}'),
             ]
             for scenario, seq_fname in seq_scenarios:
                 fig_s, axes_s = plt.subplots(n_rows, n_cols, figsize=full_figsize,
@@ -1248,18 +1248,18 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 _save_fig(fig_s, os.path.join(output_path, seq_fname + '.png'))
 
 
-def plot_mgsi_basic_grid(df, output_path, split_panels=True, show_markers=False,
+def plot_basic_mgsi_grid(df, output_path, split_panels=True, show_markers=False,
                         crust_production=None, mg_si_values=None, width='double', height=None,
                         show_hz=None):
-    """The basic sweep at each mantle Mg/Si: Mg/Si as columns, outgassing as colour.
+    """The basic_low_mgsi / basic_high_mgsi sweeps: Mg/Si as columns, outgassing as colour.
 
-    plot_faceted_lines draws the outgassing x crust-production plane at ONE crust composition, so
+    plot_basic draws the outgassing x crust-production plane at ONE crust composition, so
     running it per Mg/Si gives one figure each and the compositions can only be compared by
     flipping between files. This holds crust production fixed and puts Mg/Si along the columns
     instead, which is what the low/high Mg/Si basic sweeps were run to show: whether the
     outgassing family -- the strength of the weathering feedback -- depends on crust chemistry.
 
-    Distinct from plot_crust_composition, which colours BY Mg/Si at a single (outgassing, crust)
+    Distinct from plot_cross, which colours BY Mg/Si at a single (outgassing, crust)
     pair: that shows the composition effect for one tectonic state, this shows whether the
     composition effect survives across the outgassing axis.
     """
@@ -1314,12 +1314,12 @@ def plot_mgsi_basic_grid(df, output_path, split_panels=True, show_markers=False,
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle(f'Mantle Mg/Si   (crust production = {crust_production:g}× Earth)')
-        _save_fig(fig, os.path.join(output_path, f'lines_mgsi_basic{sfx}.png'))
+        _save_fig(fig, os.path.join(output_path, f'sweep_basic_mgsi_grid{sfx}.png'))
 
 
-def plot_ocean_depth_effect(df, output_path, show_markers=False, split_panels=True,
+def plot_depth(df, output_path, show_markers=False, split_panels=True,
                             width='single', height=None, show_hz=None):
-    """T, P_CO2, pH, salinity vs instellation for Earth-like tectonics, coloured by ocean depth."""
+    """The depth sweep: T, P_CO2, pH, salinity vs instellation, coloured by ocean depth."""
     # The depth sweep fixes (outgassing, crust) at their sweep defaults and varies ocean_depth.
     # That default changed over time (outgassing 1.0 -> 0.1), so instead of hardcoding a value
     # (which silently produced an empty/one-depth plot), pick whichever (outgassing, crust) pair
@@ -1364,15 +1364,15 @@ def plot_ocean_depth_effect(df, output_path, show_markers=False, split_panels=Tr
     ticks, _ = _colorbar_ticks(depths)
     ticklabels = [f'{v / 1000:g}' for v in ticks] if ticks is not None else None
     _faceted_lines(subset, 'ocean_depth', depths, [cmap(norm(d)) for d in depths],
-                   cmap, norm, 'Ocean Depth (km)', 'lines_ocean_depth', output_path,
+                   cmap, norm, 'Ocean Depth (km)', 'sweep_depth', output_path,
                    split_panels=split_panels, show_markers=show_markers,
                    x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
                    aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
 
 
-def plot_chemistry_constants(df, output_path, show_markers=False, split_panels=True,
+def plot_chemistry(df, output_path, show_markers=False, split_panels=True,
                              width='single', height=None, show_hz=None):
-    """Sweeps 4/5: T, P_CO2, pH, salinity vs instellation for each chemistry-constant value.
+    """The alpha and chemistry sweeps: T, P_CO2, pH, salinity vs instellation per constant value.
 
     One figure per constant that actually varies (alpha, kd_mg, k_na); the other two are held
     at their most common value so each figure isolates a single knob.
@@ -1410,16 +1410,19 @@ def plot_chemistry_constants(df, output_path, show_markers=False, split_panels=T
         norm = _value_norm(values)
         cmap = cmr.ember
         ticks, ticklabels = _colorbar_ticks(values)
+        # alpha is its own named sweep (parameter_sweep.sweep_alpha); kd_mg and k_na are the
+        # two arms of sweep_chemistry, so they are filed under that name.
+        stem = 'sweep_alpha' if col == 'alpha' else f'sweep_chemistry_{col}'
         _faceted_lines(subset, col, values, [cmap(norm(v)) for v in values],
-                       cmap, norm, CHEM_KNOBS[col], f'lines_{col}', output_path,
+                       cmap, norm, CHEM_KNOBS[col], stem, output_path,
                        split_panels=split_panels, show_markers=show_markers,
                        x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
                        aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
 
 
-def plot_redox_effect(df, output_path, show_markers=False, split_panels=True,
+def plot_pe(df, output_path, show_markers=False, split_panels=True,
                       ocean_depth=3000, width='single', height=None, show_hz=None):
-    """Sweep: T, P_CO2, pH, salinity vs instellation for each ocean redox state (pe).
+    """The pe sweep: T, P_CO2, pH, salinity vs instellation for each ocean redox state (pe).
 
     `pe` (an abiotic, reducing ocean vs an oxidised one) is not a continuous knob like the
     CHEM_KNOBS -- it switches the iron sink between Siderite and Goethite -- but it is swept the
@@ -1450,7 +1453,7 @@ def plot_redox_effect(df, output_path, show_markers=False, split_panels=True,
     ticks, ticklabels = _colorbar_ticks(values)
     tag = '' if ocean_depth == 3000 else f'_d{ocean_depth:g}'
     _faceted_lines(subset, 'pe', values, [cmap(norm(v)) for v in values],
-                   cmap, norm, r'Ocean redox $p_e$', f'lines_pe{tag}', output_path,
+                   cmap, norm, r'Ocean redox $p_e$', f'sweep_pe{tag}', output_path,
                    split_panels=split_panels, show_markers=show_markers,
                    x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
                    aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
@@ -1483,9 +1486,9 @@ def _composition_slice(pool):
     return pool[(pool['outgassing'] == best_o) & (pool['crust_production'] == best_c)], best_o, best_c
 
 
-def plot_crust_composition(df, output_path, split_panels=True, show_markers=False,
+def plot_cross(df, output_path, split_panels=True, show_markers=False,
                            ocean_depth=3000, width='single', height=None, show_hz=None):
-    """T, P_CO2, pH, salinity vs instellation, one figure per crust-composition axis.
+    """The cross sweep: T, P_CO2, pH, salinity vs instellation, one figure per composition axis.
 
     Emits a SEPARATE figure for each axis that varies -- mantle Mg/Si and core-formation dIW --
     holding the other at its Earth reference. The previous version picked whichever axis varied
@@ -1543,7 +1546,7 @@ def plot_crust_composition(df, output_path, split_panels=True, show_markers=Fals
         cbar_label, ticklabels = label, [fmt(v) for v in values]
 
         _faceted_lines(cut, key, values, [cmap(norm(n)) for n in numeric],
-                       cmap, norm, cbar_label, f'lines_crust_{key}{tag}', output_path,
+                       cmap, norm, cbar_label, f'sweep_cross_{key}{tag}', output_path,
                        split_panels=split_panels, show_markers=show_markers,
                        ticks=numeric, ticklabels=ticklabels, width=width, height=height,
                        show_hz=show_hz)
@@ -1585,14 +1588,14 @@ def _three_columns(values, ref, n=3):
     return sorted(picked)[:n]
 
 
-def plot_composition_grid(df, output_path, split_panels=True, show_markers=False,
+def plot_composition(df, output_path, split_panels=True, show_markers=False,
                           ocean_depth=3000, min_lines=2, n_cols=3,
                           width='double', height=None, show_hz=None):
-    """The composition factorial in the style of the basic sweep: dIW as columns, Mg/Si as colour.
+    """The composition sweep, in the style of the basic one: dIW as columns, Mg/Si as colour.
 
-    Same layout as `lines_combined_full` (crust rate as columns, outgassing as colour), with the
+    Same layout as `sweep_basic_full` (crust rate as columns, outgassing as colour), with the
     two crust axes substituted. This uses the WHOLE factorial rather than the one-axis cuts
-    `plot_crust_composition` draws: every panel is a fixed dIW, and every line within it a fixed
+    `plot_cross` draws: every panel is a fixed dIW, and every line within it a fixed
     Mg/Si, so an interaction between the two axes shows up as the family of lines changing shape
     from column to column rather than merely shifting.
 
@@ -1653,7 +1656,7 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle(r'Core-formation $\Delta$IW')
-        _save_fig(fig, os.path.join(output_path, f'lines_composition_grid{tag}{sfx}.png'))
+        _save_fig(fig, os.path.join(output_path, f'sweep_composition{tag}{sfx}.png'))
 
     # The transpose: Mg/Si as columns, dIW as colour. Same data, and it is the better
     # arrangement when the dIW effect is the one being read off.
@@ -1685,13 +1688,13 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
         _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
                                                       show_hz=show_hz, cols=cols))
         fig.suptitle('Mantle Mg/Si')
-        _save_fig(fig, os.path.join(output_path, f'lines_composition_grid_T{tag}{sfx}.png'))
+        _save_fig(fig, os.path.join(output_path, f'sweep_composition_T{tag}{sfx}.png'))
 
 
 def plot_composition_map(df, output_path, s_vals=(0.7, 0.9, 1.0, 1.1), ocean_depth=3000,
                          quantity='T', relative=True, min_cells=3,
                          width='double', height=2.6):
-    """Map of outcome over the Mg/Si x dIW plane, one panel per instellation.
+    """The composition sweep as a map over the Mg/Si x dIW plane, one panel per instellation.
 
     The composition sweep is a near-factorial, so the two axes can be shown together rather than
     as separate one-axis cuts. That answers the question the cuts cannot: whether Mg/Si and dIW
@@ -1823,7 +1826,7 @@ def plot_composition_map(df, output_path, s_vals=(0.7, 0.9, 1.0, 1.1), ocean_dep
                               markersize=8, label='Earth reference crust'))
     fig.legend(handles=handles, loc='outside lower center', ncol=len(handles))
     _save_fig(fig, os.path.join(output_path,
-                                f'map_composition_{quantity}{"" if relative else "_abs"}.png'))
+                                f'sweep_composition_map_{quantity}{"" if relative else "_abs"}.png'))
 
 
 def plot_ratio_scatter(df, output_path, s_vals=(0.4, 0.6, 0.8, 1.0, 1.2)):
@@ -2447,22 +2450,22 @@ if __name__ == '__main__':
     if end_members:
         print(f"Basic sweep Mg/Si planes: {[f'{m:g}' for m in basic_mg]}")
 
-    plot_faceted_lines(df, args.path, split_panels=True)
-    plot_faceted_lines(df, args.path, all_results=False, split_panels=True)
+    plot_basic(df, args.path, split_panels=True)
+    plot_basic(df, args.path, all_results=False, split_panels=True)
     for _mg in end_members:
-        plot_faceted_lines(df, args.path, split_panels=True, mg_si=_mg)
-        plot_faceted_lines(df, args.path, all_results=False, split_panels=True, mg_si=_mg)
-    plot_mgsi_basic_grid(df, args.path, split_panels=True)
-    # plot_faceted_lines(df, args.path, split_panels=True, all_results=False, sequence=True)
-    plot_ocean_depth_effect(df, args.path, split_panels=True)
-    plot_chemistry_constants(df, args.path, split_panels=True)
+        plot_basic(df, args.path, split_panels=True, mg_si=_mg)
+        plot_basic(df, args.path, all_results=False, split_panels=True, mg_si=_mg)
+    plot_basic_mgsi_grid(df, args.path, split_panels=True)
+    # plot_basic(df, args.path, split_panels=True, all_results=False, sequence=True)
+    plot_depth(df, args.path, split_panels=True)
+    plot_chemistry(df, args.path, split_panels=True)
     for _d in redox_depths:
-        plot_redox_effect(df, args.path, split_panels=True, ocean_depth=_d)
+        plot_pe(df, args.path, split_panels=True, ocean_depth=_d)
     plot_ratio_scatter(df, args.path)
     for _d in comp_depths:
-        plot_crust_composition(df, args.path, show_markers=False, split_panels=True,
+        plot_cross(df, args.path, show_markers=False, split_panels=True,
                                ocean_depth=_d)
-        plot_composition_grid(df, args.path, show_markers=False, split_panels=True,
+        plot_composition(df, args.path, show_markers=False, split_panels=True,
                               ocean_depth=_d)
     for _q in ('T', 'P_CO2'):
         plot_composition_map(df, args.path, ocean_depth=comp_depths[0], quantity=_q)
