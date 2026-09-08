@@ -13,9 +13,8 @@ question is "how does the assemblage change across the grid", where each panel i
 shape rather than as eight numbers. Three things carry identity so it is never colour alone:
 
   * slice order is IDENTICAL in every panel, so angular position encodes mineral;
-  * a legend is always present, and on the screen version each panel is direct-labelled with
-    its melt SiO2 (the paper version drops those numbers to the companion CSV);
-  * mineral weight fractions are written to a companion CSV as the table view.
+  * a legend is always present, and the Earth cell is direct-labelled and ringed;
+  * mineral weight fractions AND melt SiO2 are written to a companion CSV as the table view.
 
 Colour encodes the mineral FAMILY and texture the cation within it, so eleven phases are read as
 six groups; see COLORS for the mapping and its validation. Slices of one family are adjacent in
@@ -44,7 +43,7 @@ from matplotlib.patches import Circle
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
 
 from kamino.constants import EARTH_DELTA_IW, EARTH_MANTLE_MG_SI
-from kamino.crust_composition import CRUST_TABLE, MORB_OXIDES, cipw_norm
+from kamino.crust_composition import CRUST_TABLE, cipw_norm
 
 # Fixed slice order, silica-rich -> silica-poor, with the albite->nepheline cascade pair
 # adjacent. Changing this changes which colour pairs touch; see the module docstring.
@@ -132,33 +131,6 @@ def assemblage(row):
         return {}, True
 
 
-def morb_assemblage():
-    """Normative MORB, through the same norm as every grid cell -- the observational anchor."""
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        return cipw_norm(MORB_OXIDES, emit_quartz=True)
-
-
-def draw_reference_pie(fig, rect, label_size=7.0, title_size=7.6):
-    """The MORB reference pie, in figure coordinates, so the grid reads against real crust."""
-    ax = fig.add_axes(rect)
-    ax.set_facecolor(SURFACE)
-    c = morb_assemblage()
-    keep = [(m, c.get(m, 0.0)) for m in MINERALS if c.get(m, 0.0) > 1e-4]
-    wedges, _ = ax.pie([v for _, v in keep], colors=[COLORS[m] for m, _ in keep],
-                       startangle=90, counterclock=False, radius=1.0,
-                       wedgeprops=dict(edgecolor=SURFACE, linewidth=1.0))
-    for wedge, (m, _) in zip(wedges, keep):
-        if m in HATCHED:
-            wedge.set_hatch(HATCHED[m])
-            wedge.set_edgecolor(hatch_ink(COLORS[m]))
-    ax.set_title('MORB', fontsize=title_size, color=INK, pad=3)
-    # set_xlabel rather than a placed text: matplotlib keeps it tucked under the pie whatever
-    # the axes aspect works out to.
-    ax.set_xlabel('reference', fontsize=label_size, color=INK_3, labelpad=2)
-    return ax
-
-
 def draw_grid_axes(fig, axes, mgsi_show, diw_show, fs):
     """Bottom (Mg/Si) and left ($\\Delta$IW) axis lines, one tick per grid column and row.
 
@@ -217,23 +189,19 @@ def main(table, out, paper=False):
 
     # The paper version is sized to the MNRAS text width and drops the title block -- a figure
     # in a paper is captioned by LaTeX, and repeating it above the axes wastes a third of the
-    # height that the pies need. It also drops the MORB reference and the per-cell melt SiO2,
-    # both of which belong in the caption or the companion table at that size.
+    # height that the pies need. Everything else is common to both: the melt SiO2 numbers and
+    # the MORB reference pie belong in the caption or the companion table, not on the grid.
     if paper:
         size = (TEXT_WIDTH_IN, 1.02 * ny + 0.95)
-        fs = dict(col=7.0, row=7.0, feo=5.8, cell=5.4, axis=8.0, legend=6.5, morb=6.4)
+        fs = dict(col=7.0, row=7.0, feo=5.8, cell=5.4, axis=8.0, legend=6.5)
         pad = dict(left=0.105, right=0.930, top=0.972, bottom=0.175, wspace=0.10, hspace=0.02)
-        morb_rect = None
-        legend_x = 0.5
     else:
         size = (1.15 * nx + 2.6, 1.16 * ny + 1.9)
-        fs = dict(col=8.5, row=8.5, feo=7.5, cell=6.6, axis=10.0, legend=8.0, morb=7.6)
+        fs = dict(col=8.5, row=8.5, feo=7.5, cell=6.6, axis=10.0, legend=8.0)
         pad = dict(left=0.090, right=0.945, top=0.885, bottom=0.175, wspace=0.10, hspace=0.02)
-        morb_rect = [0.036, 0.042, 0.086, 0.086]
-        legend_x = 0.565
 
-    # Room under the pie for the direct label; the paper version needs it only for 'Earth'.
-    ylim = (-1.33, 1.21) if paper else (-1.42, 1.14)
+    # Room under the pie for the one direct label the grid still carries, on the Earth cell.
+    ylim = (-1.33, 1.21)
 
     fig, axes = plt.subplots(ny, nx, figsize=size)
     fig.patch.set_facecolor(SURFACE)
@@ -275,20 +243,13 @@ def main(table, out, paper=False):
                 if m in HATCHED:
                     wedge.set_hatch(HATCHED[m])
                     wedge.set_edgecolor(hatch_ink(COLORS[m]))
-            # Selective direct label: melt silica is the scalar that separates the regimes.
-            # The Earth cell folds its name into the same label rather than adding a second one
-            # above the pie, which collided with the row above once the rows were tightened.
-            # The paper version carries no silica numbers -- they are the companion CSV's job --
-            # so there the Earth cell keeps its name alone.
+            # The one direct label on the grid. Melt SiO2 used to be written under every pie;
+            # it is a per-cell number rather than part of the shape being compared, so it now
+            # lives only in the companion CSV.
             is_earth = np.isclose(mgsi, EARTH_MANTLE_MG_SI) and np.isclose(diw, EARTH_DELTA_IW)
-            if paper:
-                label = 'Earth' if is_earth else ''
-            else:
-                label = f'Earth  {row.SiO2:.0f}' if is_earth else f'{row.SiO2:.0f}'
-            if label:
-                ax.text(0, -1.28, label, ha='center', va='center', fontsize=fs['cell'],
-                        color=INK if is_earth else INK_2,
-                        fontweight='bold' if is_earth else 'normal')
+            if is_earth:
+                ax.text(0, -1.28, 'Earth', ha='center', va='center', fontsize=fs['cell'],
+                        color=INK, fontweight='bold')
             ax.set_xlim(-1.30, 1.30); ax.set_ylim(*ylim)
 
             if is_earth:
@@ -305,7 +266,7 @@ def main(table, out, paper=False):
                  ha='center', fontsize=13, color=INK)
         fig.text(0.5, 0.929,
                  'MAGEMin primary melts at 20% melting, through the CIPW norm.  '
-                 'Number under each pie is melt SiO$_2$ (wt%).',
+                 'Melt SiO$_2$ per cell is in the companion CSV.',
                  ha='center', fontsize=8.5, color=INK_2)
         fig.text(0.5, 0.909,
                  'Hue = mineral family (amber quartz, green feldspar, light/dark blue Mg/Fe '
@@ -326,16 +287,12 @@ def main(table, out, paper=False):
     # width and shrinks the type below the 8 pt floor.
     ncol = len(labels) if len(labels) <= 7 else (len(labels) + 1) // 2
     fig.legend(handles, labels, loc='lower center', ncol=ncol, frameon=False,
-               fontsize=fs['legend'], bbox_to_anchor=(legend_x, 0.002),
+               fontsize=fs['legend'], bbox_to_anchor=(0.5, 0.002),
                handlelength=1.1, columnspacing=1.3)
 
     fig.subplots_adjust(**pad)
-    # Both drawn last: they read positions fixed by subplots_adjust, and add_axes ignores it.
+    # Drawn last: it reads panel positions, which subplots_adjust has only just fixed.
     draw_grid_axes(fig, axes, mgsi_show, diw_show, fs)
-    if morb_rect is not None:
-        # Real oceanic crust through the same norm, so the grid is read against something
-        # measured rather than only against itself.
-        draw_reference_pie(fig, morb_rect, label_size=fs['morb'] - 1.0, title_size=fs['morb'])
 
     for ext in ('png', 'pdf'):
         fig.savefig(f'{out}.{ext}', facecolor=SURFACE)
@@ -349,8 +306,7 @@ if __name__ == '__main__':
     ap.add_argument('--table', default=CRUST_TABLE)
     ap.add_argument('--out', default=None)
     ap.add_argument('--paper', action='store_true',
-                    help='MNRAS text-width version: fewer pies, no title block, '
-                         'no MORB reference and no per-cell melt SiO2')
+                    help='MNRAS text-width version: fewer pies, no title block')
     a = ap.parse_args()
     main(a.table, a.out or ('output/crust_grid_paper' if a.paper else 'output/crust_grid'),
          paper=a.paper)
