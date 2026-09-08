@@ -141,6 +141,60 @@ DA_TRUSTWORTHY = HABITABLE | {'wall_timeout'}
 T_SNOWBALL = 260.0
 T_RUNAWAY  = 360.0
 
+# ---------------------------------------------------------------------------
+# Habitable-zone edges of the Earth-like continental baseline
+# ---------------------------------------------------------------------------
+# Instellation limits of the temperate band on the reference Earth-like planet, measured by
+# experiments/continental_baseline.py: land fraction 0.3 with every other axis at Earth --
+# 1x outgassing, 1x crust production, 3 km ocean, Earth crust (Mg/Si 1.25, dIW -2), reverse
+# weathering on, reducing ocean. Drawn as vertical lines on TEMPERATURE panels, so any figure of
+# T against instellation can be read against the same reference planet. Temperature only: the
+# edges say where the temperate band is entered and left, which is not a statement about pCO2,
+# pH, salinity or mineral saturation, so marking those panels would imply a threshold in a
+# quantity the edges say nothing about.
+#
+# OUTER is a crossing: T interpolated onto T_SNOWBALL between the S = 0.45 and S = 0.50 runs.
+# It is CO2-SUPPLY limited, not radiation limited. The WHAK continental sink stays near 2x the
+# modern Earth rate all the way out (beta = 0.3 makes the pCO2 term cancel the temperature
+# term), so pCO2 never reaches the several bars a maximum greenhouse needs -- the analytic
+# climate model's own maximum-greenhouse edge is nearer S = 0.41, and Kopparapu et al. (2013)
+# put it at 0.35.
+#
+# INNER is bracketed between the S = 1.10 and S = 1.15 runs. At 1.15 absorbed instellation
+# exceeds the OLR (Simpson-Nakajima) limit, so no cool-branch solution exists and the planet is
+# in a runaway greenhouse; the climate model puts that threshold at S = 1.141 once CO2 is
+# exhausted. Do not read the inner edge to better than the 0.05 grid spacing.
+#
+# These are properties of ONE reference planet. A figure that varies ocean depth, crust
+# composition or outgassing is being compared against Earth-like continents, not against its
+# own habitable zone.
+CONTINENTAL_HZ_OUTER = 0.480
+CONTINENTAL_HZ_INNER = 1.125
+
+# Whether the HZ lines are drawn. THIS is the switch: set it to True to put the edges on every
+# instellation figure in one go. Off by default so existing figures are unchanged. Every
+# plotting function also takes show_hz=True/False to override it for one figure.
+SHOW_HZ_EDGES = True
+
+
+def _draw_hz_edges(ax, show_hz=None):
+    """Mark the continental baseline's habitable-zone edges on a TEMPERATURE axis.
+
+    `show_hz` of None defers to the module default, so a caller that does not care need not
+    thread the flag; True or False decides for this axis alone.
+    """
+    if not (SHOW_HZ_EDGES if show_hz is None else show_hz):
+        return
+    for s in (CONTINENTAL_HZ_OUTER, CONTINENTAL_HZ_INNER):
+        ax.axvline(s, color='0.35', linestyle=(0, (6, 3)), linewidth=1.0, alpha=0.85, zorder=1)
+
+
+# Legend entry for the above, appended by _make_legend_handles when the lines are drawn.
+def _hz_legend_handle():
+    return Line2D([0], [0], color='0.35', linestyle=(0, (6, 3)), linewidth=1.0,
+                  label='Continental baseline HZ')
+
+
 # Molar masses (g/mol) for the b_ocean elements, used to turn the final state into a
 # salinity. C is carried as HCO₃⁻ (61) and S as SO₄²⁻ (96.06); Alkalinity is a charge
 # balance rather than a mass, so it is skipped. Indices are derived from
@@ -717,13 +771,20 @@ def _panel_groups(split):
     return [(PANEL_COLS, '')]
 
 
-def _style_axes(axes, cols, x_lims=(0.25, 1.45)):
-    """Style a set of axes given the column names they represent."""
+def _style_axes(axes, cols, x_lims=(0.25, 1.45), show_hz=None):
+    """Style a set of axes given the column names they represent.
+
+    `show_hz` draws the continental baseline's habitable-zone edges on the TEMPERATURE panel
+    only. The edges are a statement about temperature -- where the band is entered and left --
+    so putting them on a pCO2 or salinity panel would assert a threshold in a quantity they say
+    nothing about.
+    """
     for ax in axes:
         ax.grid(True, linestyle='--', alpha=0.4)
         ax.set_xlim(*x_lims)
     for ax, col in zip(axes, cols):
         if col == 'T':
+            _draw_hz_edges(ax, show_hz)
             ax.set_ylabel('Temperature (K)')
             ax.axhspan(T_SNOWBALL - 25, T_SNOWBALL, color='blue', alpha=0.12)
             ax.axhspan(T_RUNAWAY - 20,  T_RUNAWAY,  color='red',  alpha=0.12)
@@ -764,9 +825,16 @@ def _add_colorbar(fig, ax, cmap, norm, label, ticks=None, ticklabels=None, aspec
     return cbar
 
 
-def _make_legend_handles(show_markers=True, prefix_handles=None):
-    """Build legend handle list: prefix (default DA_LEGEND) + optional marker entries."""
+def _make_legend_handles(show_markers=True, prefix_handles=None, show_hz=None, cols=None):
+    """Build legend handle list: prefix (default DA_LEGEND) + optional marker entries.
+
+    The HZ entry appears only when `cols` contains a temperature panel, because that is the only
+    panel the edges are drawn on -- a legend describing lines the figure does not have is worse
+    than no legend entry.
+    """
     handles = list(prefix_handles if prefix_handles is not None else DA_LEGEND)
+    if (SHOW_HZ_EDGES if show_hz is None else show_hz) and 'T' in (cols or ()):
+        handles.append(_hz_legend_handle())
     if show_markers:
         handles += [plt.scatter([], [], marker=m, s=28, color='k', label=TERM_LABELS[t])
                     for t, m in HAB_MARKERS.items()]
@@ -815,17 +883,20 @@ def _save_fig(fig, path, tight=False):
     type below the size the style chose. Pass tight=True for diagnostics, where exact width does
     not matter.
     """
-    fig.savefig(path, **({'bbox_inches': 'tight'} if tight else {}))
+    kw = {'bbox_inches': 'tight'} if tight else {}
+    stem = os.path.splitext(path)[0]
+    for ext in ('png', 'pdf'):
+        fig.savefig(f'{stem}.{ext}', **kw)
     plt.close(fig)
-    print(f"Saved {path}")
+    print(f"Saved {stem}.png / .pdf")
 
 
-def _style_combined_col(axes_c, ci, n_cols, title='', cols=None):
+def _style_combined_col(axes_c, ci, n_cols, title='', cols=None, show_hz=None):
     """Style one column of a multi-column grid: axis labels, tick visibility, x-label."""
     if cols is None:
         cols = PANEL_COLS
     col_axes = axes_c[:, ci]
-    _style_axes(col_axes, cols)
+    _style_axes(col_axes, cols, show_hz=show_hz)
     if title:
         axes_c[0, ci].set_title(title)
     if ci > 0:
@@ -983,7 +1054,7 @@ def _colorbar_ticks(values, max_ticks=10):
 def _faceted_lines(subset, col, values, colours, cmap, norm, cbar_label, stem, output_path,
                    split_panels=False, show_markers=False, x_lims=None,
                    ticks=None, ticklabels=None, aspect_per_row=None,
-                   width='single', height=None):
+                   width='single', height=None, show_hz=None):
     """The standard one-variable faceted line figure, one file per panel group.
 
     Every figure that plots T / P_CO2 / pH / salinity against instellation with one line per value
@@ -1005,11 +1076,14 @@ def _faceted_lines(subset, col, values, colours, cmap, norm, cbar_label, stem, o
             group = subset[subset[col] == value].sort_values('instellation')
             if not group.empty:
                 _plot_group_on_axes(axes, group, colour, show_markers=show_markers, cols=cols)
-        _style_axes(axes, cols, **({} if x_lims is None else {'x_lims': x_lims}))
+        _style_axes(axes, cols, show_hz=show_hz,
+                    **({} if x_lims is None else {'x_lims': x_lims}))
         _add_colorbar(fig, list(axes), cmap, norm, cbar_label, ticks=ticks,
                       ticklabels=ticklabels,
                       **({} if aspect_per_row is None else {'aspect': n_rows * aspect_per_row}))
-        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers))
+        _add_figure_legend(fig, axes,
+                           _make_legend_handles(show_markers=show_markers, show_hz=show_hz,
+                                                cols=cols))
         _save_fig(fig, os.path.join(output_path, f'{stem}{sfx}.png'))
 
 
@@ -1067,7 +1141,7 @@ def _plot_group_on_axes(axes, group, color, linestyle='-', show_markers=True, co
 
 def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                        split_panels=True, sequence=False, width='double', height=None,
-                       mg_si=None):
+                       mg_si=None, show_hz=None):
     """T, P_CO2, pH, salinity vs instellation per crust rate, coloured by outgassing.
 
     `mg_si` draws the same plane at a non-reference mantle Mg/Si; the value is tagged into every
@@ -1108,7 +1182,7 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 _add_colorbar(fig, list(axes), cmap, norm, 'Earth Outgassing',
                               ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                               aspect=n_rows * 7.5) # type: ignore
-                _h = _make_legend_handles()
+                _h = _make_legend_handles(show_hz=show_hz, cols=cols)
                 fig.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig.suptitle(f'Crust production = {c}× Earth{mg_title}')
                 _save_fig(fig, os.path.join(output_path,
@@ -1128,9 +1202,10 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                 if not group.empty:
                     _plot_group_on_axes(axes_c[:, ci], group, cmap(norm(o)),
                                         show_markers=all_results, cols=cols)
-            _style_combined_col(axes_c, ci, n_cols, title=f'{c}×', cols=cols)
+            _style_combined_col(axes_c, ci, n_cols, title=f'{c}×', cols=cols,
+                                show_hz=show_hz)
 
-        _h = _make_legend_handles(show_markers=all_results)
+        _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz, cols=cols)
         fig_c.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
         _add_colorbar(fig_c, list(axes_c.ravel()), cmap, norm, 'Earth Outgassing',
                       ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
@@ -1162,18 +1237,20 @@ def plot_faceted_lines(df, output_path, all_results=True, multiple_plots=False,
                                  .sort_values('instellation'))
                         if not group.empty:
                             _plot_group_on_axes(axes_s[:, ci], group, cmap(norm(o)), cols=cols, show_markers=all_results)
-                    _style_combined_col(axes_s, ci, n_cols, title=f'{c}×', cols=cols)
+                    _style_combined_col(axes_s, ci, n_cols, title=f'{c}×', cols=cols,
+                                        show_hz=show_hz)
                 _add_colorbar(fig_s, list(axes_s.ravel()), cmap, norm, 'Earth Outgassing',
                               ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                               aspect=n_rows * 10)
-                _h = _make_legend_handles(show_markers=all_results)
+                _h = _make_legend_handles(show_markers=all_results, show_hz=show_hz, cols=cols)
                 fig_s.legend(handles=_h, loc='outside lower center', ncol=_legend_ncol(_h, 4))
                 fig_s.suptitle(f'Earth crust production rate{mg_title}')
                 _save_fig(fig_s, os.path.join(output_path, seq_fname + '.png'))
 
 
 def plot_mgsi_basic_grid(df, output_path, split_panels=True, show_markers=False,
-                        crust_production=None, mg_si_values=None, width='double', height=None):
+                        crust_production=None, mg_si_values=None, width='double', height=None,
+                        show_hz=None):
     """The basic sweep at each mantle Mg/Si: Mg/Si as columns, outgassing as colour.
 
     plot_faceted_lines draws the outgassing x crust-production plane at ONE crust composition, so
@@ -1229,18 +1306,19 @@ def plot_mgsi_basic_grid(df, output_path, split_panels=True, show_markers=False,
                     _plot_group_on_axes(axes[:, ci], group, cmap(norm(o)),
                                         show_markers=show_markers, cols=cols)
             title = f'{m:g}' + (' (Earth)' if np.isclose(m, REF_MG_SI) else '')
-            _style_combined_col(axes, ci, n_cols, title=title, cols=cols)
+            _style_combined_col(axes, ci, n_cols, title=title, cols=cols, show_hz=show_hz)
 
         _add_colorbar(fig, list(axes.ravel()), cmap, norm, 'Earth Outgassing',
                       ticks=outgassing_vals, ticklabels=[f'{v}×' for v in outgassing_vals],
                       aspect=n_rows * 10)
-        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers))
+        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle(f'Mantle Mg/Si   (crust production = {crust_production:g}× Earth)')
         _save_fig(fig, os.path.join(output_path, f'lines_mgsi_basic{sfx}.png'))
 
 
 def plot_ocean_depth_effect(df, output_path, show_markers=False, split_panels=True,
-                            width='single', height=None):
+                            width='single', height=None, show_hz=None):
     """T, P_CO2, pH, salinity vs instellation for Earth-like tectonics, coloured by ocean depth."""
     # The depth sweep fixes (outgassing, crust) at their sweep defaults and varies ocean_depth.
     # That default changed over time (outgassing 1.0 -> 0.1), so instead of hardcoding a value
@@ -1289,11 +1367,11 @@ def plot_ocean_depth_effect(df, output_path, show_markers=False, split_panels=Tr
                    cmap, norm, 'Ocean Depth (km)', 'lines_ocean_depth', output_path,
                    split_panels=split_panels, show_markers=show_markers,
                    x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
-                   aspect_per_row=7.5, width=width, height=height)
+                   aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
 
 
 def plot_chemistry_constants(df, output_path, show_markers=False, split_panels=True,
-                             width='single', height=None):
+                             width='single', height=None, show_hz=None):
     """Sweeps 4/5: T, P_CO2, pH, salinity vs instellation for each chemistry-constant value.
 
     One figure per constant that actually varies (alpha, kd_mg, k_na); the other two are held
@@ -1336,11 +1414,11 @@ def plot_chemistry_constants(df, output_path, show_markers=False, split_panels=T
                        cmap, norm, CHEM_KNOBS[col], f'lines_{col}', output_path,
                        split_panels=split_panels, show_markers=show_markers,
                        x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
-                       aspect_per_row=7.5, width=width, height=height)
+                       aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
 
 
 def plot_redox_effect(df, output_path, show_markers=False, split_panels=True,
-                      ocean_depth=3000, width='single', height=None):
+                      ocean_depth=3000, width='single', height=None, show_hz=None):
     """Sweep: T, P_CO2, pH, salinity vs instellation for each ocean redox state (pe).
 
     `pe` (an abiotic, reducing ocean vs an oxidised one) is not a continuous knob like the
@@ -1375,7 +1453,7 @@ def plot_redox_effect(df, output_path, show_markers=False, split_panels=True,
                    cmap, norm, r'Ocean redox $p_e$', f'lines_pe{tag}', output_path,
                    split_panels=split_panels, show_markers=show_markers,
                    x_lims=_x_limits(subset), ticks=ticks, ticklabels=ticklabels,
-                   aspect_per_row=7.5, width=width, height=height)
+                   aspect_per_row=7.5, width=width, height=height, show_hz=show_hz)
 
 
 def _composition_pool(df, ocean_depth=3000):
@@ -1406,7 +1484,7 @@ def _composition_slice(pool):
 
 
 def plot_crust_composition(df, output_path, split_panels=True, show_markers=False,
-                           ocean_depth=3000, width='single', height=None):
+                           ocean_depth=3000, width='single', height=None, show_hz=None):
     """T, P_CO2, pH, salinity vs instellation, one figure per crust-composition axis.
 
     Emits a SEPARATE figure for each axis that varies -- mantle Mg/Si and core-formation dIW --
@@ -1467,7 +1545,8 @@ def plot_crust_composition(df, output_path, split_panels=True, show_markers=Fals
         _faceted_lines(cut, key, values, [cmap(norm(n)) for n in numeric],
                        cmap, norm, cbar_label, f'lines_crust_{key}{tag}', output_path,
                        split_panels=split_panels, show_markers=show_markers,
-                       ticks=numeric, ticklabels=ticklabels, width=width, height=height)
+                       ticks=numeric, ticklabels=ticklabels, width=width, height=height,
+                       show_hz=show_hz)
 
 
 def _diw_title(dw, shown):
@@ -1508,7 +1587,7 @@ def _three_columns(values, ref, n=3):
 
 def plot_composition_grid(df, output_path, split_panels=True, show_markers=False,
                           ocean_depth=3000, min_lines=2, n_cols=3,
-                          width='double', height=None):
+                          width='double', height=None, show_hz=None):
     """The composition factorial in the style of the basic sweep: dIW as columns, Mg/Si as colour.
 
     Same layout as `lines_combined_full` (crust rate as columns, outgassing as colour), with the
@@ -1571,7 +1650,8 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
         _add_colorbar(fig, list(axes.ravel()), cmap, norm, 'Mantle Mg/Si',
                       ticks=mg_vals, ticklabels=[f'{v:g}' for v in mg_vals],
                       aspect=n_rows * 10)
-        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers))
+        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle(r'Core-formation $\Delta$IW')
         _save_fig(fig, os.path.join(output_path, f'lines_composition_grid{tag}{sfx}.png'))
 
@@ -1597,11 +1677,13 @@ def plot_composition_grid(df, output_path, split_panels=True, show_markers=False
                 if not group.empty:
                     _plot_group_on_axes(axes[:, ci], group, cmap_d(norm_d(dw)),
                                         show_markers=show_markers, cols=cols)
-            _style_combined_col(axes, ci, len(mg_cols), title=f'{mg:g}', cols=cols)
+            _style_combined_col(axes, ci, len(mg_cols), title=f'{mg:g}', cols=cols,
+                               show_hz=show_hz)
         _add_colorbar(fig, list(axes.ravel()), cmap_d, norm_d, r'Core-formation $\Delta$IW',
                       ticks=diw_all, ticklabels=[f'{v:+g}' for v in diw_all],
                       aspect=n_rows * 10)
-        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers))
+        _add_figure_legend(fig, axes, _make_legend_handles(show_markers=show_markers,
+                                                      show_hz=show_hz, cols=cols))
         fig.suptitle('Mantle Mg/Si')
         _save_fig(fig, os.path.join(output_path, f'lines_composition_grid_T{tag}{sfx}.png'))
 
@@ -1922,7 +2004,7 @@ def plot_damkohler_contour(df, output_path, out_targets=(0.1, 1.0, 10.0)):
         _save_fig(fig, os.path.join(output_path, 'da_contour.png'))
 
 
-def plot_continental_baseline(df, output_path):
+def plot_continental_baseline(df, output_path, show_hz=None):
     """T, P_CO2, pH, salinity, and individual ion concentrations vs instellation
     for the Earth-like continental baseline.
 
@@ -2004,7 +2086,7 @@ def plot_continental_baseline(df, output_path):
         if other:
             _plot_group_on_axes([axes[grp_cols.index(c)] for c in other], group_hab, color='k',
                                 show_markers=False, cols=other)
-        _style_axes(axes, grp_cols)
+        _style_axes(axes, grp_cols, show_hz=show_hz)
 
         for ax, col in zip(axes, grp_cols):
             ax.scatter(EARTH_S, earth_vals[col], marker='*', s=220, color='blue',
