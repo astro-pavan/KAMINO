@@ -84,6 +84,15 @@ GREY = '#969696'
 INK = '#252525'
 
 
+def _save_fig(fig, out_path, dpi=160):
+    """Write the figure as both PNG (screen) and PDF (vector, for the paper)."""
+    stem = os.path.splitext(out_path)[0]
+    for ext in ('png', 'pdf'):
+        fig.savefig(f'{stem}.{ext}', dpi=dpi, bbox_inches='tight')
+    plt.close(fig)
+    print(f'Saved {stem}.png / .pdf')
+
+
 def _fmt(x, unit=''):
     if not np.isfinite(x):
         return 'n/a'
@@ -263,9 +272,7 @@ def plot_dashboard(diag, out_path):
                  fontweight='bold')
     fig.legend(handles=process_handles, loc='outside lower center',
                ncol=min(len(process_handles), 6), frameon=False, fontsize=8)
-    fig.savefig(out_path, dpi=160, bbox_inches='tight')
-    plt.close(fig)
-    print(f'Saved {out_path}')
+    _save_fig(fig, out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -323,9 +330,7 @@ def plot_ledger(diag, out_path):
     name = diag['config'].get('name', 'planet')
     ax.set_title(f'{name} — source/sink ledger at {diag["time_yr"]:.2e} yr',
                  fontweight='bold', loc='left')
-    fig.savefig(out_path, dpi=160, bbox_inches='tight')
-    plt.close(fig)
-    print(f'Saved {out_path}')
+    _save_fig(fig, out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -400,9 +405,7 @@ def plot_sankey(diag, element, out_path):
                  f'({unit}), band width $\\propto$ flux',
                  fontweight='bold')
     ax.set_ylim(-box_h * 0.85, box_h * 0.85)
-    fig.savefig(out_path, dpi=160, bbox_inches='tight')
-    plt.close(fig)
-    print(f'Saved {out_path}')
+    _save_fig(fig, out_path)
 
 
 # ---------------------------------------------------------------------------

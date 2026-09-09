@@ -197,10 +197,11 @@ def figure_mineralogy(mg_si, oxides, diw, outdir):
                      hatch=MINERAL_HATCH.get(m)) for m in MINERAL_ORDER]
     fig.legend(handles=handles, loc="outside lower center", ncol=4, fontsize=6.5,
                handlelength=1.2, columnspacing=1.0, borderpad=0.2)
-    path = os.path.join(outdir, "crust_mineralogy_mgsi.png")
-    fig.savefig(path, bbox_inches="tight")
+    stem = os.path.join(outdir, "crust_mineralogy_mgsi")
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved {path}")
+    print(f"Saved {stem}.png / .pdf")
 
 
 def figure_reactivity(mg_si, t_melt, oxides, outdir):
@@ -223,10 +224,11 @@ def figure_reactivity(mg_si, t_melt, oxides, outdir):
     axes[0].text(mg_si.min(), earth_t, " Earth", fontsize=6, color="0.35",
                  va="bottom", ha="left")
     axes[-1].set_xlabel("mantle Mg/Si (molar)")
-    path = os.path.join(outdir, "crust_reactivity_mgsi.png")
-    fig.savefig(path, bbox_inches="tight")
+    stem = os.path.join(outdir, "crust_reactivity_mgsi")
+    for ext in ("png", "pdf"):
+        fig.savefig(f"{stem}.{ext}", bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved {path}")
+    print(f"Saved {stem}.png / .pdf")
 
 
 def main():

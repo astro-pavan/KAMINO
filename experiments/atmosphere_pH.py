@@ -111,10 +111,11 @@ def plot_solubility_enhancement(output_path):
     ax.legend(ncol=3, fontsize=8)
     ax.grid(True, linestyle='--', alpha=0.3)
 
-    out_path = os.path.join(output_path, 'gas_solubility_pH.png')
-    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    stem = os.path.join(output_path, 'gas_solubility_pH')
+    for ext in ('png', 'pdf'):
+        fig.savefig(f'{stem}.{ext}', dpi=150, bbox_inches='tight')
     plt.close(fig)
-    print(f'Saved {out_path}')
+    print(f'Saved {stem}.png / .pdf')
 
 
 if __name__ == '__main__':

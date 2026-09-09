@@ -188,7 +188,7 @@ def upgrade(df, verbose=True):
 def plot_named_compositions(df, output_path, split_panels=False, show_markers=False):
     """The pre-MAGEMin crust figure: one line per NAMED composition, coloured by melt SiO2.
 
-    Kept here rather than as a branch inside `plot_crust_composition`, which now handles only the
+    Kept here rather than as a branch inside `plot_results.plot_cross`, which now handles only the
     (Mg/Si, dIW) axes. Imports from plot_results at call time so the two modules do not import
     each other at module scope.
     """
