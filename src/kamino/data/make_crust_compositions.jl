@@ -1,18 +1,6 @@
 #=
 make_crust_compositions.jl -- primary-melt compositions on a (Mg/Si, dIW) grid, via MAGEMin.
 
-Writes crust_compositions.csv, the table crust_composition.oxide_composition interpolates.
-Isobaric batch melting at P_MELT, solving temperature for a fixed melt fraction; the liquid is
-the crust composition.
-
-    julia make_crust_compositions.jl                       # full grid
-    julia make_crust_compositions.jl --points "1.25,-2.0"  # spot checks
-    julia make_crust_compositions.jl --points "1.25,-2.0" --ftarget 0.12
-    julia make_crust_compositions.jl --out other.csv
-
-Batch melting is path-independent -- the liquid depends only on (bulk, P, T) -- so an isobaric
-solve at the segregation pressure gives the same melt as tracking an isentrope down to it.
-
 MAGEMin: Riel, Kaus, Green & Berlie (2022), G3 23, e2022GC010427.
 Dataset: Holland, Green & Powell (2018), J. Petrol. 59, 881.
 Pyrolite: McDonough & Sun (1995), Chem. Geol. 120, 223.
@@ -26,18 +14,12 @@ const CSV_OXIDES = ["SiO2","TiO2","Al2O3","Cr2O3","FeO","MgO","CaO","Na2O","K2O"
 
 # Melt segregation pressure (kbar), a representative mean depth beneath a ridge.
 const P_MELT = 10.0
-# Where clinopyroxene leaves the assemblage for Earth's mantle, beyond which melting is much
-# less productive (Guimond et al. 2024, after Katz et al. 2003).
-# Not const: --ftarget overrides it, for the F-sensitivity question the Earth-vs-MORB offset
-# raises (development history 32.10). MAGEMin dominates the runtime, so the global costs nothing.
+
 F_TARGET = 0.20
 const T_LO, T_HI, T_TOL = 900.0, 2200.0, 1.0
 const ULTRACALCIC_WARN = 1.2
 const F_TOL = 0.05
 
-# Non-uniform, dense where the assemblage changes: the source goes quartz-normative below the
-# line (Mg/Si, dIW) = (0.5, -1.05) .. (0.8, -2.82), and opx-out and the nepheline/ferropericlase
-# switch sit near Mg/Si 1.6. Earth's anchors (1.25, -2.0) must stay on the grid.
 const MGSI_GRID = sort(unique([0.5:0.05:0.9; 1.0:0.1:1.2; 1.25; 1.3:0.05:1.8; 1.9; 2.0]))
 const DIW_GRID = sort(unique([-5.0:0.5:-3.0; -2.9:0.1:-1.0]))
 
@@ -60,7 +42,6 @@ x_feo_from_wt(feo) = (feo / M_OX["FeO"]) / (feo / M_OX["FeO"] + (100.0 - feo) * 
 # Calibrated so dIW = -2 reproduces BSE FeO exactly; mirrors _FEO_ACTIVITY_CONST in
 # crust_composition.py. Only the Earth anchor is meaningful -- the absolute value is a label.
 const FEO_ACTIVITY_CONST = x_feo_from_wt(EARTH_MANTLE_FEO) / 10.0^(DIW_EARTH / 2)
-
 "Mantle FeO (wt%) from core-formation fO2, inverting Fe + 1/2 O2 = FeO. Logarithmic in dIW."
 function feo_from_delta_iw(diw::Float64)
     x = FEO_ACTIVITY_CONST * 10.0^(diw / 2)
