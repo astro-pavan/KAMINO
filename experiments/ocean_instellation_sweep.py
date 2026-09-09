@@ -195,10 +195,11 @@ def _add_colorbar(fig, axes, cmap, norm, out_vals):
 
 
 def _save(fig, name):
-    path = os.path.join(OUTPUT_PATH, name)
-    fig.savefig(path, bbox_inches='tight')
+    stem = os.path.join(OUTPUT_PATH, os.path.splitext(name)[0])
+    for ext in ('png', 'pdf'):
+        fig.savefig(f'{stem}.{ext}', bbox_inches='tight')
     plt.close(fig)
-    print(f"Saved {path}")
+    print(f"Saved {stem}.png / .pdf")
 
 
 # ---------------------------------------------------------------------------

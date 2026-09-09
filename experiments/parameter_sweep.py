@@ -13,7 +13,14 @@ from kamino.crust_composition import mineral_composition
 from kamino.constants import M_EARTH, R_EARTH, EARTH_MANTLE_MG_SI, EARTH_DELTA_IW
 from kamino.mineral_info import *
 
-RERUN = False
+# Set KAMINO_RERUN=1 to recompute runs that already have output on disk.
+#
+# Read from the ENVIRONMENT rather than edited in place, because ProcessPoolExecutor spawns
+# workers that re-import this module: a value assigned in the parent process never reaches them.
+# A monkeypatched RERUN would therefore keep silently reusing the very runs it was set to
+# replace, and the sweep would report success having recomputed nothing. The environment is
+# inherited across spawn, so it does propagate.
+RERUN = os.environ.get('KAMINO_RERUN', '0').lower() in ('1', 'true', 'yes')
 MAX_CHEMISTRY_FALLBACKS = 5000
 
 # ── Calibrated constants ──────────────────────────────────────────────────────────────────────
@@ -122,8 +129,11 @@ def _warn_constant_drift():
 # converging. That is a truncation of real physics, which is what these budgets exist to avoid.
 # The headroom is cheap now that tau_prec scales with ocean depth (planet.TAU_PREC_REF): the deep
 # runs that motivated the cap take 3-6x fewer steps than the pilot's did.
-WALL_SECONDS_SHALLOW = 900
-WALL_SECONDS_DEEP = 2700
+# Overridable from the environment for the same reason as RERUN above (spawned workers re-import
+# this module, so only the environment crosses the process boundary). Raising the shallow budget
+# is how a batch of wall_timeout runs gets finished without changing the default for every sweep.
+WALL_SECONDS_SHALLOW = int(os.environ.get('KAMINO_WALL_SHALLOW', 900))
+WALL_SECONDS_DEEP = int(os.environ.get('KAMINO_WALL_DEEP', 2700))
 DEEP_OCEAN_M = 10000
 
 
@@ -402,6 +412,32 @@ k_na_default = [K_NA_CALIB]
 mantle_mg_si_default = [EARTH_MANTLE_MG_SI]
 delta_iw_default = [EARTH_DELTA_IW]
 
+# ── The alpha x outgassing plane ──────────────────────────────────────────────────────────────
+# Axes for the iso-temperature figure (plot_results.plot_alpha_outgassing_plane), which measures
+# how far raising the reactive area alpha substitutes for lowering outgassing. That figure holds
+# T fixed and reads the slope of outgassing against alpha on log axes, so BOTH axes have to be
+# resolved: the existing coverage is 3 alpha values from `alpha` above and 7 half-decade
+# outgassing values, which gives 3-point lines interpolated across half-decade gaps.
+#
+# alpha stays inside the range the sensitivity arm already validated (ALPHA_REF to 50) rather
+# than extending it. Above ~50 the seafloor sink approaches Da = 1 and the trade-off stops
+# existing -- a thermodynamically limited sink does not respond to alpha at all -- and the
+# figure discards those runs anyway; below ALPHA_REF nothing is calibrated.
+ALPHA_PLANE = [ALPHA_REF, 2, 3.5, 6, 10, 18, 30, 50]
+
+# Quarter-decade outgassing, against the half-decade `outgassing` grid. The iso-T level is found
+# by interpolating along THIS axis, so its spacing sets the error on every point of every line.
+OUTGASSING_PLANE = [0.01, 0.018, 0.032, 0.056, 0.1, 0.18, 0.32, 0.56,
+                    1.0, 1.8, 3.2, 5.6, 10.0]
+
+# One line per instellation. Coarser than `instellation` because the lines are drawn at distinct
+# colours on one axis -- more than ~7 is unreadable, and each one costs a full alpha x outgassing
+# plane. 0.4 to 1.0 is the range over which a temperate iso-T level is reachable at every alpha:
+# below it the low-alpha column never gets warm enough, above it the low-outgassing column is
+# already too warm (measured on the existing 3 x 3 grid).
+INSTELLATION_PLANE = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+
 # The two Mg/Si end-members the basic sweep is repeated at, bracketing Earth's 1.25.
 # 0.8 is the low limit of the composition axes: below it the mantle is olivine-free and the crust
 # quartz-normative (Guimond et al. 2024; development history 25.4).
@@ -559,6 +595,19 @@ def sweep_alpha_composition(output_path=OUTPUT_PATH, pe=PE_STATES):
     return run_combos(combos, output_path=output_path)
 
 
+def sweep_alpha_outgassing(output_path=OUTPUT_PATH, pe=PE_STATES):
+    """The dense alpha x outgassing plane at the Earth-reference crust, 3 km, crust production 1.
+
+    Populates plot_results.plot_alpha_outgassing_plane: everything except alpha, outgassing and
+    instellation is held fixed, because Mg/Si, crust production and ocean depth all move the
+    seafloor sink for reasons that have nothing to do with alpha and would smear the iso-T lines.
+    """
+    return run_sweep(INSTELLATION_PLANE, OUTGASSING_PLANE, crust_production_rate_default,
+                     ocean_depth_default, reverse_weathering_default, mantle_mg_si_default,
+                     delta_iw_default, ALPHA_PLANE, k_mg_default, k_na_default,
+                     pe=pe, output_path=output_path)
+
+
 def sweep_chemistry(output_path=OUTPUT_PATH, pe=PE_STATES):
     """kd_mg_ht and k_na on/off, to isolate what each sink contributes."""
     return run_sweep(instellation, outgassing_default, crust_production_rate_default,
@@ -644,6 +693,7 @@ SWEEPS = {
     'alpha':             ('alpha sensitivity arm', sweep_alpha),
     'alpha_composition': ('alpha x composition -- does the signal survive alpha?',
                           sweep_alpha_composition),
+    'alpha_outgassing':  ('dense alpha x outgassing plane, 3 km', sweep_alpha_outgassing),
     'pe':                ('redox sensitivity arm, 3 km', sweep_pe),
     'pe_deep':           ('redox sensitivity arm, 20 km', sweep_pe_deep),
     'pe_composition':    ('pe x composition -- does the signal survive redox?',
@@ -703,6 +753,8 @@ def _sweep_size(name):
         'cross_deep':       len(cross_combos(CROSS_INSTELLATION, CROSS_MG_SI, CROSS_DELTA_IW,
                                              ocean_depth_deep_default))*n_redox,
         'alpha':            len(instellation)*len(alpha)*n_redox,
+        'alpha_outgassing': (len(INSTELLATION_PLANE)*len(OUTGASSING_PLANE)
+                             *len(ALPHA_PLANE)*n_redox),
         'alpha_composition': sum(len(cross_combos(CROSS_INSTELLATION, CROSS_MG_SI,
                                                   CROSS_DELTA_IW, ocean_depth_default, alpha=a))
                                  for a in alpha)*n_redox,
