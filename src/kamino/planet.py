@@ -198,8 +198,24 @@ class Planet:
         self.P_background = background_pressure
 
         # Ocean properties
+        #
+        # `ocean_depth` is the TRUE depth of the water column over the seafloor -- that is how it
+        # is used for the pore pressure in dY_dt (P_pore adds 1000*g*ocean_depth) -- so the ocean
+        # covers only the (1 - land_fraction) of the surface that is not land, and both its mass
+        # and the area the seafloor fluxes act over scale with that fraction.
+        #
+        # Both were previously taken over the FULL sphere. For a land-free planet the two agree
+        # exactly (1 - 0 = 1), which is why every land-free sweep is unaffected by this. With
+        # land they did not: the seafloor terms below are all of the form
+        # (per-seafloor-area rate x area) / ocean_water_mass, so their area factor cancelled and
+        # they stayed correct, but F_cont and F_vol were diluted into 1/(1 - land_fraction) too
+        # much water -- 1.43x too weak at Earth's land fraction, which overweighted the seafloor
+        # sink relative to continental weathering by the same factor.
+        if not 0.0 <= land_fraction < 1.0:
+            raise ValueError(f"land_fraction must be in [0, 1), not {land_fraction}")
         self.ocean_depth = ocean_depth
-        self.ocean_water_mass = self.ocean_depth * self.surface_area * 1000
+        self.seafloor_area = (1.0 - land_fraction) * self.surface_area
+        self.ocean_water_mass = self.ocean_depth * self.seafloor_area * 1000
 
         # Tectonic properties
         # Crust mineralogy from the two composition axes. `mantle_mg_si` is the mantle's molar
@@ -339,17 +355,17 @@ class Planet:
 
             # Off axis (low-temperature) hydrothermal weathering
             flux_LT, diag_LT = get_weathering_flux(P_pore, T_pore, P_CO2, b_ocean, alpha=self.alpha, rate=self.crust_production_rate, J=J_total, crust_composition=self.crust_composition, sedimentation_rate=S_sed, precipitating_minerals=self.pore_precipitating_minerals, water_rock_ratio=self.water_rock_ratio, pe=self.pe)
-            F_diss = (flux_LT * self.surface_area) / self.ocean_water_mass
+            F_diss = (flux_LT * self.seafloor_area) / self.ocean_water_mass
 
             # HT Mg->Ca exchange (parameterized)
-            _ht_rate = self.kd_mg_ht * b_ocean[mg_idx] * J_total * self.surface_area / self.ocean_water_mass
+            _ht_rate = self.kd_mg_ht * b_ocean[mg_idx] * J_total * self.seafloor_area / self.ocean_water_mass
             F_ht_exchange = np.zeros(elements.shape)
             F_ht_exchange[mg_idx] = -_ht_rate
             F_ht_exchange[ca_idx] = +_ht_rate
 
             # Na sink (parameterized)
             F_na_rw = np.zeros(elements.shape)
-            F_na_rw[na_idx] = -self.na_cont_k * b_ocean[na_idx] * J_total * self.surface_area / self.ocean_water_mass
+            F_na_rw[na_idx] = -self.na_cont_k * b_ocean[na_idx] * J_total * self.seafloor_area / self.ocean_water_mass
             F_na_rw[alk_idx] = F_na_rw[na_idx]
 
             # Land based fluxes
@@ -369,7 +385,7 @@ class Planet:
 
             # Cl subduction
             F_cl_subduct = np.zeros(elements.shape)
-            F_cl_subduct[cl_idx] = -self.cl_subduction_k * b_ocean[cl_idx] * J_total * self.surface_area / self.ocean_water_mass
+            F_cl_subduct[cl_idx] = -self.cl_subduction_k * b_ocean[cl_idx] * J_total * self.seafloor_area / self.ocean_water_mass
             F_cl_subduct[alk_idx] = -F_cl_subduct[cl_idx]
 
             # Total final flux
