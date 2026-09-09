@@ -18,6 +18,8 @@ CALIBRATION — it records the Earth calibration, shows `alpha` is not identifia
 establishes that the LT seafloor flux carries the wrong ion relative to Coogan & Dosso. §22.0 also
 corrects two stale entries in §11/§15.
 
+**§33 is the most recent work and supersedes §22/§27 on CALIBRATION**: the seafloor-area fix (§33.3) changes the land-bearing physics, so `KD_MG_CALIB` and `K_NA_CALIB` must be re-fitted before any ocean chemistry at `land_fraction > 0` is quoted. Land-free results are unaffected and verified bit-identical.
+
 **§13 is the reference point for results.** The 17 June 2026 seminar
 (`Ocean_Chemistry_Seminar-2.pdf`) is the last time the model produced a complete, self-consistent set
 of results — the target behaviour.
@@ -85,6 +87,7 @@ with LSODA.
 | **Aug 19–20** | **Earth calibration** (§22): `K_na` and `kd_mg_ht` fitted and alpha-independent; `alpha` shown to be unidentifiable from Earth; the 1 Tmol/yr anchor found to be 88% Fe measured without pore precipitation; **Coogan & Dosso LT fluxes adopted as the literature target**, exposing the Mg/Ca composition mismatch. |
 | **Aug 21** | **MAGEMin + Mg/Si sweep** (§24): pMELTS replaced, Earth basalt calibrated at T_p = 1325, constant-F closure adopted and homologous-temperature rejected, ultracalcic melts diagnosed and fixed by stopping at cpx-out — then **§24.6: most of it was already published by this group** (Guimond et al. 2024). |
 | **Aug 20** | **Crust-composition pipeline** (§23): the flat T_p/Mg-Si trends traced to a broken oxide mapping plus CIPW clipping; **pMELTS brought online** (superseding §5) and `make_crust_compositions.py` written; **Nepheline added** to the database, rates, norm and build path. |
+| **Sep 7–8** | **Continental weathering and the crossover** (§33): `continental_baseline.py` rewritten as an Earth-like instellation sweep; a post-runaway hot-branch state found being counted as habitable; the **seafloor-area fix** (§33.3) which invalidates the Earth calibration; land-fraction series, coarse grid and alpha sweep; a TTG second-melt diagnostic showing high Mg/Si cannot make felsic continents; **alpha measured as the largest control** (f\* ∝ α^0.80–0.86). |
 | **Sep 3** | **Crust pipeline audited** (§32): the Mg/Si 0.5 / ΔIW −1 "vanishing quartz" traced to a real phase boundary aliased by the ΔIW axis; the isentrope shown redundant under batch melting and **replaced by an isobaric solve** (577 → 219 lines, 130 s → 1 s per point); grid 17 × 9 → **26 × 25**; `check_crust_table.py` found broken since §25.13 and fixed. |
 
 ---
@@ -4502,3 +4505,389 @@ one thing lowering F buys (Na₂O) costs silica saturation, Al₂O₃, K₂O and
 - ✅ F = 0.12 tested directly and rejected (§32.10): it fixes Na₂O but turns the Earth melt
   nepheline-normative, and nepheline is 1.2 decades faster-dissolving than albite. `--ftarget` is
   back in the generator if the question needs revisiting.
+
+---
+
+## 33. Continental weathering, the seafloor-area fix, and what actually controls the crossover (2026-09-07 → 09-08)
+
+The question this session set out to answer was narrow — give the model a habitable zone for
+Earth-like planets, to compare against the land-free ocean worlds — and it turned into a
+sequence of corrections, one of which invalidates the Earth calibration. **§33.3 is the one to
+read if you read only one.**
+
+### 33.1 `continental_baseline.py` rewritten
+
+The old script was dead code: it named `basalt_49` (replaced by the Mg/Si–ΔIW axes in §25), wrote
+to a `/data/pt426/kamino_experiments_fast_3` path that no longer exists, and set `f_HT = 0.01`,
+which `plot_results.plot_continental_baseline` filters out — so it could not have produced the
+figure it existed to feed.
+
+It now runs one instellation line (0.30 → 1.45, step 0.05) at `land_fraction = 0.3` with every
+other axis at Earth: 1× outgassing, 1× crust production, 3 km, Earth crust, reverse weathering
+on, reducing. The land-free arm runs alongside as the comparison; its run names are identical to
+the ones `sweep_basic` already wrote (the `_land` tag is suppressed at 0), so those come off disk
+for free. `parameter_sweep._run_name` and `run_simulation` gained a `land` argument, both
+defaulted, so no existing sweep or run name moves.
+
+`SWEEP` at the top of the file selects `'baseline'`, `'land'`, `'grid'` or `'alpha'`.
+
+**Result at Earth:** T = 295.5 K, pCO₂ 873 ppm (§22's calibration reports 294.4 K). Habitable
+band **0.48 ≤ S ≤ 1.125**. The land-free arm at 1× outgassing has **no habitable band at all** —
+19 of 24 runs peg the 10 bar CO₂ ceiling — which is why the ocean-world sweeps run at 0.1×
+outgassing. Seafloor weathering alone cannot balance Earth's outgassing.
+
+### 33.2 A real bug: post-runaway states counted as habitable
+
+`get_T_surface_analytic` scans T upward and returns the first sign change. The OLR is **not
+monotonic in T** — at 1 Pa CO₂ it peaks at 271.5 W/m² near 320 K (the Simpson–Nakajima limit),
+dips, then climbs. When absorbed instellation exceeds that peak there is no cool-branch root, and
+the solver silently returns a value on the **hot branch beyond the runaway**.
+
+| S | F_in (W/m²) | T returned | branch |
+|---|---|---|---|
+| 1.10 | 261.8 | 298.3 | cool |
+| 1.14 | 271.1 | 317.6 | cool |
+| 1.15 | 273.7 | **357.4** | **hot — past runaway** |
+
+357.4 K passed a `T < T_RUNAWAY = 360` test, putting the inner edge one grid point too far out.
+`hz_edges` now rejects states above the OLR limit and above the fit's 350 K validity ceiling.
+Inner edge 1.150 → **1.125**; the climate model's own runaway threshold at the 1 Pa floor is
+S = 1.141, consistent with that bracket.
+
+### 33.3 ⚠️ The seafloor-area fix — THE CALIBRATION IS NOW STALE
+
+`J_total` comes from `EARTH_HYDROTHERMAL_FLUX_PER_AREA`, normalised on `A_SEAFLOOR_EARTH`, and
+`flux_LT` inherits that basis — but `F_diss`, the HT Mg→Ca exchange, the Na sink and Cl
+subduction all applied it over the **full sphere**. `ocean_water_mass` had the same error, and
+since every one of those terms is `(per-area rate × area) / ocean_water_mass` the two cancelled,
+so the seafloor terms were right as concentration rates. What was actually wrong is that
+**`F_cont` and `F_vol` were diluted into 1/(1 − f) too much water** — 1.43× too weak at Earth's
+land fraction, overweighting the seafloor sink relative to continental weathering by that factor.
+
+`ocean_depth` is the true depth over the seafloor (that is how `dY_dt` uses it for the pore
+pressure), so the ocean covers (1 − f) of the surface. `Planet.seafloor_area` added and used for
+`ocean_water_mass` and the four hydrothermal terms, plus a guard on `land_fraction ≥ 1`.
+
+**`land_fraction = 0` is bit-identical under this** ((1 − 0) = 1), verified — so all 7586
+land-free runs, i.e. every main sweep, remain valid.
+
+**But `calibrate_earth.py` fits at `LAND_FRAC = 0.3`**, so `KD_MG_CALIB` and `K_NA_CALIB`
+absorbed the 1.43×. Measured at S = 1, land 0.3:
+
+| | old | new | vs Earth |
+|---|---|---|---|
+| T | 295.5 K | 295.2 K | — |
+| pCO₂ | 873 ppm | 824 ppm | — |
+| Na | 491 | 679 mM | 1.02× → 1.41× |
+| Mg | 46 | 77 mM | 0.88× → 1.45× |
+| Cl | 165 | 235 mM | 0.30× → **0.43×** (toward Earth) |
+
+Climate barely moves; the ocean does. The mechanism is clean: the Na and Cl *sinks* are
+`J·A/M` and unchanged, while their sources are now 1.43× stronger. **Re-run
+`calibrate_earth.py` before quoting ocean chemistry.** The 33 land-bearing runs on disk at the
+time were deleted rather than left for the resume path to reuse.
+
+### 33.4 Why the habitable zone does not look like Kopparapu 2013
+
+It is not supposed to. The climate model's *radiative* limits do match:
+
+| | Kopparapu 2013 | this model |
+|---|---|---|
+| Earth (S = 1, 280 ppm) | 288 K | 290.3 K |
+| runaway greenhouse | 1.06 (1.107 Earth-mass) | 1.141 |
+| maximum greenhouse | 0.343–0.35 | ~0.41 |
+
+The OLR fit is Haqq-Misra et al. (2016), ApJ 827, 120 — a polynomial fit *to* Kopparapu's 1-D
+radiative-convective columns, valid for 10⁻⁵–10 bar CO₂ and **150–350 K**. That is an
+OLR(T, pCO₂) parameterisation, not the S_eff boundary polynomials.
+
+What differs is the **outer** edge, and it is physics not error. Kopparapu's maximum greenhouse
+asks what the best possible CO₂ can do; the carbon cycle asks what CO₂ you actually get. At
+S = 0.5 the maximum greenhouse would use 4.3 bar (302.9 K) and holding 273 K needs 0.79 bar — the
+sweep supplied **0.474 bar**, giving 261 K. The reason is the WHAK parameters: with β = 0.3 the
+CO₂ term cancels the temperature term, so the sink never shuts off:
+
+| S | T (K) | pCO₂ (bar) | CO₂ term | T term | **f** |
+|---|---|---|---|---|---|
+| 0.50 | 261.0 | 0.474 | 9.30 | 0.204 | **1.90** |
+| 1.00 | 295.5 | 8.7e-4 | 1.41 | 1.555 | **2.19** |
+
+Weathering sits near 2× modern Earth across the *entire* zone. Sustaining 4.3 bar at S = 0.5
+would need it at **43×**, which 1× outgassing cannot feed. So the outer edge is CO₂-supply
+limited at 0.48, not radiation limited at ~0.41. There is also no runoff term, no supply limit,
+and no ice-albedo feedback (`LAND_ALBEDO == OCEAN_ALBEDO == 0.3`), so weathering never shuts down
+through glaciation — which is how CO₂ reaches multi-bar levels in max-greenhouse calculations.
+
+⚠️ At S ≥ 1.1 the carbon cycle drives pCO₂ to 10⁻⁴–10⁻⁹ bar, **below the OLR fit's 10⁻⁵ bar
+floor**. The code clamps to 1 Pa so radiation stays in range, but the climate is then evaluated
+at a CO₂ up to three orders of magnitude above what the chemistry says. The inner edge is set by
+CO₂ exhaustion, so this sits exactly where it matters.
+
+### 33.5 The land-fraction series and the crossover
+
+`LAND_FRACTIONS = [0.3, 0.2, 0.1, 0.03, 0.01, 0.003, 0.001, 0.0003, 0.0]`, log-spaced because at
+land 0.3 continental alkalinity is ~21 Tmol eq/yr against a seafloor ~0.018 — a ratio near 1200.
+
+At the Earth reference the crossover is **f\* = 3.2e-4 to 1.7e-3**: seafloor weathering only
+dominates below a land fraction of ~10⁻³. Over the whole plausible terrestrial range continental
+weathering wins by 10²–10³.
+
+The coarse grid (`SWEEP = 'grid'`, 810 combos: instellation × land × outgassing × crust × Mg/Si)
+shows f\* moving **~2 orders of magnitude**, 3e-4 to 0.075. It rises with crust production
+(which drives `J_total` directly), falls with outgassing, and at 10× outgassing with Mg/Si 1.25
+there is no crossover anywhere sampled. Mg/Si 1.8 shifts it up 3–10×.
+
+Cross-design check: the Mg/Si 1.25, crust 1×, out 1× cell gives 0.00031–0.0011 against the fine
+series' 0.00032–0.0017 — two independent designs agreeing.
+
+### 33.6 The Mg/Si trend is climate-mediated, not a reactivity effect
+
+`mantle_mg_si` reaches the model only through `Planet.crust_composition`, and
+`crust_production_rate` only through `J_total`. Neither is an argument to
+`get_continental_weathering_flux`, which sees T and pCO₂ against an `F_alk_ref` pinned to modern
+Earth and a cation split fixed to modern river chemistry. **Continental weathering cannot respond
+to crust chemistry or tectonic rate except through the shared climate.**
+
+Measured at land 0.003, S = 0.8, Mg/Si 1.25 → 1.8: the seafloor flux rises only **1.3–1.8×**
+while the continental flux **falls to 0.48–0.68×**, because the stronger seafloor sink draws
+pCO₂ 1.45 → 0.76 bar and cools the planet 330.5 → 321.6 K, weakening WHAK. In 4 of 5 cells the
+climate-mediated continental change is the larger factor.
+
+### 33.7 The crust-reactivity diagnostic: high Mg/Si cannot make felsic continents
+
+To test whether the Mg/Si signal is real reactivity, a **second melting stage** was added:
+`src/kamino/data/make_continental_compositions.jl` melts the stage-1 oceanic crust hydrously at
+15 kbar / 3 wt% H₂O to F = 0.20, keeping the melt and discarding the residue — the TTG model of
+Archean continental crust (Rapp & Watson 1995, J. Petrol. 36, 891; Moyen & Martin 2012, Lithos
+148, 312). Not part of the planet model; a diagnostic only.
+
+The pressure was chosen from a probe, not assumed: at 10 kbar the residue is spinel + feldspar
+with no garnet and the melt stays basaltic (SiO₂ 48); at 15 kbar the residue is garnet + cpx +
+amphibole and SiO₂ goes 47.9 → 56.2, Na₂O 1.74 → 5.87. 650/650 grid points, 0 failed.
+
+`experiments/crust_reactivity.py` norms both crusts through the **same** norm and evaluates
+`get_k` at one fixed (T, pH). Two choices matter:
+
+- **Both sides use `_cipw_norm_native`.** The stage-2 melts are peraluminous (361/650) and the
+  pyrolite `cipw_norm` refuses a corundum-normative rock. Mixing norms would have put a **1.26×
+  artefact** into the ratio (k_oceanic 2.92e-10 pyrolite vs 3.68e-10 native at the Earth point).
+- **One fixed (T, pH) for both**, or a chemistry difference is folded into a reactivity ratio.
+
+**Earth point: 2.49** — the oceanic crust releases alkalinity 2.5× faster per unit mass than the
+trondhjemite derived from it. Across the grid the ratio spans only 0.25×–2.5× Earth's.
+
+At **Mg/Si 1.8, ΔIW −2 the ratio is 0.40× Earth's**, and 100% of the Mg/Si 1.8 column is below
+Earth. Decomposed:
+
+| | Mg/Si 1.25 | Mg/Si 1.8 | change |
+|---|---|---|---|
+| k_oceanic | 3.68e-10 | 4.95e-10 | ×1.34 |
+| k_continental | 1.48e-10 | 4.95e-10 | **×3.34** |
+| ratio | 2.49 | 1.00 | ×0.40 |
+
+The oceanic crust *does* get more reactive — ×1.34, matching the ×1.3–1.8 seafloor flux change in
+§33.6. But its continental derivative gets **more** reactive still. The mechanism is visible in
+the compositions: at Earth's Mg/Si, melting gives a genuinely felsic rock (SiO₂ 47.9 → 56.7, MgO
+12.5 → 4.1); at Mg/Si 1.8 the parent is silica-poor and the melt barely differentiates (44.7 →
+46.0, MgO 23.1 → 12.7). **A high-Mg/Si planet cannot make felsic continents from this route** —
+its "continental" crust stays basaltic and weathers nearly as fast as its seafloor.
+
+Composing the model's f\* trend with the missing continental term (÷3.34 — the model already
+contains the seafloor half) flips the sign in 3 of 5 (crust, outgassing) cells:
+
+| crust | out | model | corrected |
+|---|---|---|---|
+| 0.1 | 0.1 | 4.23× | 1.27× |
+| 1 | 1 | 6.88× | 2.06× |
+| 1 | 0.1 | 1.85× | **0.55×** |
+| 10 | 0.1 | 2.02× | **0.60×** |
+| 10 | 1 | 2.74× | **0.82×** |
+
+⚠️ That composition assumes continental weathering is **kinetically** limited. On Earth it is
+substantially **supply** limited (West et al. 2005), where a more reactive rock buys little — in
+which case the correction collapses toward 1 and the model's original trend stands. The seafloor
+law carries transport/supply limitation (sedimentation, Damköhler); the continental law has
+neither, so that coupling has no route into the model. Both readings should be quoted as bounds.
+
+### 33.8 Habitable planets are kinetically limited — so `get_k` is the right comparator
+
+Measured across the steady states on disk at 3 km:
+
+| population | median Da | fraction at Da ≥ 1 |
+|---|---|---|
+| habitable (converged/timeout) | 0.0067 | 10.5% |
+| non-habitable | 0.12 | 35.3% |
+
+and Da falls with land fraction: 8.8e-3 at land 0, 3.3e-3 at 0.03, **2.2e-4 at land 0.3**.
+Continental weathering keeps the planet cool and low-CO₂, so seafloor weathering never approaches
+saturation. Since crossing the thermodynamic limit is what flips the feedback (§21), the habitable
+population is essentially all kinetic, and a kinetic rate-constant comparison is the operative
+one rather than a partial view.
+
+⚠️ `parameter_sweep.py` states "Earth is transport-limited (Da ≫ 1)" in its `alpha` argument. The
+land-free half of that comment matches measurement (8.8e-3), but the land-bearing runs come out
+at Da = 2.2e-4 — as kinetic as anything on the grid. The parenthetical appears to conflate
+real-Earth *continental* supply limitation with the model's *seafloor* Damköhler. It is
+load-bearing for the alpha argument and should be corrected.
+
+### 33.9 `alpha` is the largest control, and it is sub-linear
+
+`SWEEP = 'alpha'`: 405 combos, alpha [1.1, 10, 50] × outgassing [0.1, 1, 10] × land × 9
+instellations, at Earth crust production and Mg/Si. 0 failed.
+
+| outgassing | α = 1.1 | α = 10 | α = 50 | exponent |
+|---|---|---|---|---|
+| 0.1× | 0.0038 | 0.0585 | 0.0725 | **0.80** |
+| 1× | 0.00059 | 0.0042 | 0.0154 | **0.86** |
+| 10× | no crossover at any α | | | — |
+
+**d log f\* / d log α = 0.80–0.86**, against the α¹ the kinetic limit predicts. Both arms are
+sub-linear, so the climate feedback damps alpha's leverage by ~15–20%. Over alpha's unconstrained
+1.1–50 range that is still a **19–26× lever on f\***, larger than any planetary property
+measured: outgassing 6–21×, crust production 1.4–4.7×, crust composition ~1× once continental
+crust is allowed to track the mantle. **And alpha is a model parameter §28.2 records as
+unidentifiable from Earth.**
+
+Outgassing sets *whether* a crossover exists (none at 10× at any alpha); alpha sets *where*.
+
+⚠️ These numbers are the **corrected** ones. Measured before the wall-timeout recovery (§33.11)
+they were 0.78–1.16, i.e. one arm apparently super-linear, which supported the opposite
+conclusion — that the feedback does not damp alpha at all. Several crossover points were being
+read off a grid with holes in it. Do not cite the earlier figures.
+
+⚠️ The α = 50, outgassing 0.1× cell reaches f\* ≈ 0.073 against a highest sampled land fraction
+of 0.3, so it is saturating against the grid edge; its 0.80 exponent is partly that, not physics.
+
+### 33.10 What the gaps in the ratio maps are
+
+86 missing cells in the alpha grid, categorised rather than assumed:
+
+| cause | n | what it is |
+|---|---|---|
+| out_of_domain: CO₂ ceiling | 61 | pCO₂ 2.8–10 bar; the sink cannot balance outgassing |
+| out_of_domain: runaway | 9 | T → 389 K, the inner edge |
+| net alkalinity sink | 7 | steady state, but seafloor flux **negative** |
+| wall_timeout | 5 | still slow at 3600 s |
+| fallback_limit | 4 | chemistry, see §33.12 |
+
+Only 9 of 86 are computational; 77 are the model reporting a physical outcome. The CO₂-ceiling
+cells fill the corner where large carbon supply meets small continental sink — 65 of 86 are at
+10× outgassing, 35 at land 3e-4 — which is the same statement as §33.1's land-free arm.
+
+The **net alkalinity sink** cells were previously dropped *silently*, leaving unmarked blanks
+indistinguishable from "no run". They are steady states where pore precipitation exceeds basalt
+dissolution, occurring where continental weathering runs at ~154 Tmol/yr and floods the ocean
+with cations. A negative ratio has no place on a log scale, but it is a real outcome:
+`_ratio_cells` now returns them separately and the maps mark them with an open circle against the
+`×` used for never-reached-steady-state.
+
+### 33.11 Finishing the wall-timeout runs, and two spawn hazards
+
+`ProcessPoolExecutor` spawns workers that **re-import `parameter_sweep`**, so a value assigned in
+the parent never reaches them: monkeypatching `RERUN = True` would have produced a sweep that
+reported success having recomputed nothing. `RERUN`, `WALL_SECONDS_SHALLOW` and
+`WALL_SECONDS_DEEP` now read from the environment (`KAMINO_RERUN`, `KAMINO_WALL_SHALLOW`,
+`KAMINO_WALL_DEEP`), which does cross the spawn boundary. Defaults unchanged.
+
+The same hazard bit the one-off runner: without an `if __name__ == '__main__'` guard every worker
+re-executed the launch and the pool died with `BrokenProcessPool`. `experiments/rerun_wall_timeouts.py`
+has the guard, and asserts every rebuilt run name **round-trips to an existing file** first —
+`_run_name` formats `1` and `1.0` differently, so a rebuilt combo can easily write a *new* file
+and leave the original wall_timeout untouched.
+
+100 runs re-run at 3600 s (4× the cap): **67 reached 2 Gyr**, 24 still wall_timeout, 8
+fallback_limit, 1 chemistry_void. Alpha-grid gaps 99 → 86, wall_timeout 22 → 5.
+
+The 8 new fallback_limits are informative: given four times the wall clock they burned through
+5000 chemistry fallbacks instead. Those runs were never merely slow — the short cap was masking
+the real failure. Raising the budget again would convert wall_timeouts into fallback_limits, not
+into results.
+
+### 33.12 What `fallback_limit` actually is
+
+When PHREEQC fails to converge, `dY_dt` catches the `ChemistryError`, **reuses the last
+derivative that did converge**, and counts a fallback; past 5000 the run is abandoned. So it is
+not "ran out of time" but "spent 5000 steps integrating physics it never computed".
+
+The comment at that `except` says *"typically high P_CO2 where PHREEQC cannot converge"*. **That
+is not what these are.** Three of them — S = 0.90, out 1×, land 0.3, at all three alphas — sit at
+283 K and 3400 ppm CO₂. Failing identically across a 45× range of alpha says the problem is the
+chemical state, not flux magnitude.
+
+The converged neighbours show it: Alk **598 mM**, DIC 363–522 mM, **Ca 0.36 mM** (a thirtieth of
+seawater), Na 650–679, Cl 235. The charge balance closes exactly — Na 678.6 + 2×Mg 76.8 + 2×Ca
+0.36 − Cl 235.1 = 597.8 against the 597.7 recorded. This is the **Cl deficit** (§7): the missing
+anion charge is carried by carbonate alkalinity, which drags DIC up and precipitates calcite
+until Ca is nearly exhausted. Near-zero Ca against enormous carbonate alkalinity is a nasty
+corner for a speciation solver — calcite's SI becomes hypersensitive to tiny Ca changes.
+
+⚠️ A `fallback_limit` run stores an **empty `data.y`** (0 rows against the expected 13), so
+salinity and the ion state are unrecoverable; only the abort-state T, pCO₂ and diagnostics
+survive. Correctly excluded from the figures either way.
+
+**These are a symptom of the Cl budget, not an independent numerical problem.** Fixing Cl would
+likely remove them, and matters far more for the ocean chemistry results than for these 4 cells.
+
+### 33.13 Coupled axes: what should not be swept independently
+
+Two pairs in the grid are not physically independent, and both were treated as such at some point
+this session:
+
+- **`crust_production` × `land_fraction`.** A stagnant-lid planet has no subduction, but felsic
+  crust can still form by intracrustal melting of a thickened hydrated basaltic pile — drip
+  tectonics/sagduction (Sizova et al. 2015; Rudnick 1995 and Jagoutz & Kelemen 2015 for the
+  modern arc+delamination alternative). It needs the pile to reach garnet-amphibolite facies.
+  Using the model's own 50 Myr resurfacing at 1× and ~7 km per turnover, over 4.5 Gyr with no
+  recycling: 1× → 630 km, 0.1× → 63 km, 0.03× → 19 km, 0.01× → 6 km. There is a floor near
+  **0.05–0.07×** below which the crust never gets deep enough to melt. At 0.1× only ~23 km ever
+  passes below 40 km, giving ~4–5 km of TTG as a global layer against the **12 km** Earth's
+  continents represent. So the (crust 0.1×, land 0.3) corner is unpopulated. Venus tesserae (~8%
+  of the surface, possibly felsic) and Mars (felsic only in ancient highlands) are the
+  observational anchors: some felsic crust, nothing like continents.
+- **`ocean_depth` × `land_fraction`.** These are two readings of water inventory and hypsometry,
+  so they trace a curve, not a plane. At land 0.3, 3.7 km gives 0.98× Earth's ocean mass (which is
+  why `calibrate_earth.py` uses 3700 m); 10 km at land 0.3 demands 2.6× Earth's water while
+  keeping 30% dry. Depth is a free axis for `land = 0` only. Note the continental baseline runs at
+  3000 m, i.e. **0.79× Earth's ocean mass** — chosen for comparability with the ocean-world
+  sweeps, but 3700 m is the Earth-consistent value.
+
+### 33.14 Figures and analysis added
+
+All through `plot_results`, so they share its style, geometry and termination markers.
+
+- `continental_vs_ocean_{tp,chem}` — the two arms at Earth outgassing, Damköhler-styled.
+- `continental_habitable_zone` — T vs S plus the zone as bars; edges labelled `crossing`,
+  `bracketed` or `open` so a bound is never read as a measurement.
+- `weathering_ratio_map` — seafloor/continental flux over instellation × land fraction.
+- `weathering_ratio_grid_mgsi{1.25,1.8}` — the same faceted over crust × outgassing.
+- `weathering_ratio_alpha_grid` — faceted over alpha × outgassing.
+- `alpha_scaling` — f\* against alpha with the α¹ reference.
+- `crust_reactivity_ratio{,_absolute}` — the (Mg/Si, ΔIW) reactivity map.
+- `plot_results` gained `CONTINENTAL_HZ_OUTER = 0.480`, `CONTINENTAL_HZ_INNER = 1.125` and
+  `SHOW_HZ_EDGES`; the lines are drawn on **temperature panels only**, and the legend entry
+  appears only where they do. `continental_baseline._report` warns when its measured edges
+  disagree with the constants, so re-running cannot silently leave every other figure stale.
+
+All ratio maps are diverging about 1 with a neutral midpoint (`cmr.fusion_r`, chroma 0.000 at its
+centre, checked not assumed), **not** forced symmetric — the ratio spans ~1e-3.5 to ~1e0.5, so a
+symmetric range would reserve half the ramp for values that never occur. Faceted maps share one
+colour scale across all panels, or each panel would renormalise and look alike whatever its
+numbers were.
+
+### 33.15 Status
+
+- ✅ Continental baseline, land-fraction series, coarse grid and alpha sweep all run, 0 failures.
+- ✅ Seafloor-area fix; land-free runs verified bit-identical.
+- ✅ Crust-reactivity diagnostic; 650/650 stage-2 melts.
+- ⚠️ **`calibrate_earth.py` must be re-run** (§33.3). `KD_MG_CALIB` / `K_NA_CALIB` absorbed the
+  1.43×. Every land-bearing result in this section uses post-fix physics with pre-fix constants:
+  Na 1.41× Earth, Mg 1.45×. The *ratios* are robust (10²–10³ effects against a 1.43× shift); the
+  absolute ocean chemistry is not.
+- ⚠️ `CONTINENTAL_HZ_OUTER/INNER` were measured before the area fix. T moved −0.1%, so they should
+  be unchanged, but the drift check will say so on the next run.
+- ⚠️ The Cl deficit (§7) is now implicated in the `fallback_limit` runs as well as the ocean
+  chemistry (§33.12).
+- ⚠️ Both melting stages use MAGEMin's `"ig"` database. A metabasite set would be more defensible
+  for stage 2 if it reaches the paper.
+- ⚠️ `parameter_sweep.py`'s "Earth is transport-limited (Da ≫ 1)" comment contradicts measurement
+  (§33.8).
